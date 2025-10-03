@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -57,6 +58,7 @@ public enum ExportType
 public static class Program
 {
     public static string _exportDirectory { get; set; } = "Export";
+    public static bool _overwrite { get; set; } = false;
 
     public static int Main(string[] args)
     {
@@ -184,9 +186,10 @@ public static class Program
         string[] aesKeys, bool listPackages, string? packagePath, bool packageInfo,
         bool export, string? output, string outputFormat, string? packageListFile, bool overwrite)
     {
-        var assembly = typeof(DefaultFileProvider).Assembly;
-        var libVersion = assembly.GetName().Version;
-        Console.Error.WriteLine($"Using CUE4Parse {libVersion}.");
+        var libVersion = typeof(DefaultFileProvider).Assembly.GetName().Version;
+        var cliVersion = Assembly.GetExecutingAssembly().GetName().Version;
+
+        Console.Error.WriteLine($"Using CUE4Parse {libVersion}, CUE4Parse.CLI {cliVersion}");
 
         // Init oodle
         OodleHelper.DownloadOodleDll();
@@ -242,7 +245,7 @@ public static class Program
 
         provider.ChangeCulture(provider.GetLanguageCode(ELanguage.English));
 
-        Console.Error.WriteLine($"Total files: {provider.Files.Count}");
+        Console.Error.WriteLine($"Total packages in the game: {provider.Files.Count}");
 
         var detexPath = Path.Combine(AppContext.BaseDirectory, DetexHelper.DLL_NAME);
         if (!File.Exists(detexPath))
@@ -250,6 +253,7 @@ public static class Program
         DetexHelper.Initialize(detexPath);
 
         Program._exportDirectory = output;
+        Program._overwrite = overwrite;
 
         // Process commands
         if (listPackages)
@@ -349,10 +353,11 @@ public static class Program
                             case ".umap":
                             {
                                 var outPath = Path.Combine(_exportDirectory, folder, Path.ChangeExtension(package.Name, ".json"));
+                                outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
 
                                 if (!overwrite && File.Exists(outPath))
                                 {
-                                    Console.Error.WriteLine($"Already exists: {outPath}");
+                                    Console.Error.WriteLine($"UMAP file already exists: {outPath}");
                                     return;
                                 }
 
@@ -377,21 +382,13 @@ public static class Program
 
                     if (!provider.TryLoadPackage(package, out var pkg)) {
                         //Console.Error.WriteLine($"Failed to load {package}");
-                        // possibly raw? save as is
                         try
                         {
+                            // possibly raw? save as is
+                            string fileName = package.Name;
                             string outPath = Path.Combine(_exportDirectory, folder, package.Name);
-
-                            if (!overwrite && File.Exists(outPath))
-                            {
-                                Console.Error.WriteLine($"Already exists: {outPath}");
-                                return;
-                            }
-
-                            Console.Error.WriteLine($"Writing {outPath}");
-                            byte[] data = provider.Files[package.Path].Read();
-                            Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
-                            File.WriteAllBytes(outPath, data);
+                            byte[] bytes = provider.Files[package.Path].Read();
+                            WriteToFile(folder, fileName, bytes, $"{fileName}", ref exportCount);
 
                         } catch (Exception ex)
                         {
@@ -417,15 +414,17 @@ public static class Program
                                     Log.Information("{ExportType} found in {PackageName}", dummy.ExportType, package.Name);
 
                                     var outPath = Path.Combine(_exportDirectory, folder, package.Name);
+                                    outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
+
+                                    var p0 = outPath.Replace(".uasset","");
                                     var p1 = Path.ChangeExtension(outPath, ".png");
                                     var p2 = Path.ChangeExtension(outPath, ".hdr");
 
                                     if (!overwrite && (File.Exists(p1) || File.Exists(p2)))
                                     {
-                                        Console.Error.WriteLine($"Already exists: {outPath}");
+                                        Console.Error.WriteLine($"Image already exists: {p0}");
                                         return;
                                     }
-
 
                                     SaveTexture(folder, texture, version.Platform, options, ref exportCount);
                                 }
@@ -501,15 +500,26 @@ public static class Program
             bool SaveHdrTexturesAsHdr = true;
             var bytes = bitmap.Encode(options.TextureFormat, SaveHdrTexturesAsHdr, out var extension);
             var fileName = $"{texture.Name}.{extension}";
-
             WriteToFile(folder, fileName, bytes, $"{fileName} ({bitmap.Width}x{bitmap.Height})", ref exportCount);
         }
     }
 
     private static void WriteToFile(string folder, string fileName, byte[] bytes, string logMessage, ref int exportCount)
     {
+        var outPath = Path.Combine(_exportDirectory, folder, fileName);
+        outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
+
+        if (!_overwrite && File.Exists(outPath))
+        {
+            Console.Error.WriteLine($"File already exists: {outPath}");
+            return;
+        }
+
+        Console.Error.WriteLine($"Writing: {outPath}");
+
         Directory.CreateDirectory(Path.Combine(_exportDirectory, folder));
-        File.WriteAllBytesAsync(Path.Combine(_exportDirectory, folder, fileName), bytes);
+        File.WriteAllBytesAsync(outPath, bytes);
+
         WriteToLog(folder, logMessage, ref exportCount);
     }
 
