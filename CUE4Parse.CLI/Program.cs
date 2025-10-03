@@ -37,6 +37,9 @@ using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.Utils;
 using Newtonsoft.Json;
 using Serilog;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using System.CommandLine;
 using System.IO.Enumeration;
 using System.Collections.Generic;
@@ -63,9 +66,7 @@ public static class Program
     public static int Main(string[] args)
     {
         // Configure logging to be minimal for CLI use
-        //Log.Logger = new LoggerConfiguration().MinimumLevel.Error().WriteTo.Console().CreateLogger();
         //Log.Logger = new LoggerConfiguration().MinimumLevel.Information().WriteTo.Console().CreateLogger();
-
         Log.Logger = new LoggerConfiguration().MinimumLevel.Fatal().WriteTo.Console().CreateLogger();
 
         // Define CLI options
@@ -135,6 +136,11 @@ public static class Program
             "Force overwrite existing files"
         );
 
+        var verboseOption = new Option<bool>(
+            new[]{"--verbose", "-v"},
+            "Verbose output"
+        );
+
         // Create root command
         var rootCommand = new RootCommand("CUE4Parse CLI tool")
         {
@@ -150,6 +156,7 @@ public static class Program
             outputFormatOption,
             packageListOption,
             overwriteOption,
+            verboseOption,
         };
 
         rootCommand.SetHandler(async (context) =>
@@ -168,9 +175,10 @@ public static class Program
                 var outputFormat = context.ParseResult.GetValueForOption(outputFormatOption)!;
                 var packageListFile = context.ParseResult.GetValueForOption(packageListOption);
                 var overwrite = context.ParseResult.GetValueForOption(overwriteOption);
+                var verbose = context.ParseResult.GetValueForOption(verboseOption);
 
                 await ProcessCommand(directory, versionString, mappings, aesKeys, listPackages,
-                    packagePath, packageInfo, export, output, outputFormat, packageListFile, overwrite);
+                    packagePath, packageInfo, export, output, outputFormat, packageListFile, overwrite, verbose);
             }
             catch (Exception ex)
             {
@@ -184,8 +192,10 @@ public static class Program
 
     private static async Task ProcessCommand(string directory, string versionString, string? mappings,
         string[] aesKeys, bool listPackages, string? packagePath, bool packageInfo,
-        bool export, string? output, string outputFormat, string? packageListFile, bool overwrite)
+        bool export, string? output, string outputFormat, string? packageListFile, bool overwrite, bool verbose)
     {
+        if (verbose) Log.Logger = new LoggerConfiguration().MinimumLevel.Information().WriteTo.Console().CreateLogger();
+
         var libVersion = typeof(DefaultFileProvider).Assembly.GetName().Version;
         var cliVersion = Assembly.GetExecutingAssembly().GetName().Version;
 
@@ -514,6 +524,7 @@ public static class Program
         if (!_overwrite && File.Exists(outPath))
         {
             Console.Error.WriteLine($"File already exists: {outPath}");
+            WriteToLog(folder, $"Already exists: {outPath}", ref exportCount);
             return;
         }
 
