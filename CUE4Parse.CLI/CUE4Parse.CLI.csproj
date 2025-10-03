@@ -1,35 +1,38 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-      <Version>0.0.1</Version>
       <OutputType>Exe</OutputType>
       <TargetFramework>net8.0</TargetFramework>
-      <IsPackable>false</IsPackable>
-      <IsPublishable>true</IsPublishable>
-      <PublishSingleFile>true</PublishSingleFile>
-      <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-      <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+      <ImplicitUsings>enable</ImplicitUsings>
+      <Nullable>enable</Nullable>
+      <PlatformTarget>x64</PlatformTarget>
+      <Platforms>AnyCPU;x64</Platforms>
+      <ProductName>CUE4Parse.CLI</ProductName>
+      <Description>CUE4Parse.CLI</Description>
+      <Authors>Joric</Authors>
+      <Copyright>Copyright © 2024 Joric</Copyright>
+      <Version>0.0.2</Version>
+      <ProductVersion>$(Version)</ProductVersion>
+      <AssemblyVersion>$(Version)</AssemblyVersion>
+      <FileVersion>$(Version)</FileVersion>
+      <InformationalVersion>$(Version)</InformationalVersion>
+      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     </PropertyGroup>
 
-    <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
-      <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-      <PlatformTarget>x64</PlatformTarget>
-    </PropertyGroup>
-
-    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
-      <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-      <PlatformTarget>x64</PlatformTarget>
-    </PropertyGroup>
+    <ItemGroup>
+      <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+      <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\CUE4Parse-Conversion\CUE4Parse-Conversion.csproj" />
       <ProjectReference Include="..\CUE4Parse\CUE4Parse.csproj" />
     </ItemGroup>
 
-    <ItemGroup>
-      <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
-      <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-      <PackageReference Include="Serilog" Version="4.2.0" />
-    </ItemGroup>
+    <Target Name="CopyLibs" AfterTargets="PostBuildEvent">
+    </Target>
+
+    <Target Name="PublishCopyLibs" AfterTargets="CopyFilesToOutputDirectory">
+    </Target>
 
 </Project>
