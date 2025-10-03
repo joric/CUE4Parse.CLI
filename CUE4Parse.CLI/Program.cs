@@ -357,7 +357,7 @@ public static class Program
 
                                 if (!overwrite && File.Exists(outPath))
                                 {
-                                    Console.Error.WriteLine($"UMAP file already exists: {outPath}");
+                                    Console.Error.WriteLine($"File already exists: {outPath}");
                                     return;
                                 }
 
@@ -374,6 +374,7 @@ public static class Program
                                 using JsonWriter writer = new JsonTextWriter(stream);
                                 serializer.Serialize(writer, exports);
 
+                                exportCount++;
                                 return;
                             }
                         }
