@@ -252,7 +252,7 @@ public static class Program
             await DetexHelper.LoadDllAsync(detexPath);
         DetexHelper.Initialize(detexPath);
 
-        Program._exportDirectory = output;
+        if (!string.IsNullOrEmpty(output)) Program._exportDirectory = output;
         Program._overwrite = overwrite;
 
         // Process commands
@@ -376,7 +376,6 @@ public static class Program
 
                                 return;
                             }
-                            break;
                         }
                     }
 
@@ -392,7 +391,7 @@ public static class Program
 
                         } catch (Exception ex)
                         {
-                            Console.Error.WriteLine($"Exception writing raw package {package}");
+                            Console.Error.WriteLine($"Exception writing raw package {package}, error: {ex.Message}");
                         }
 
                         return;
@@ -474,6 +473,8 @@ public static class Program
                 exportCount,
                 type.ToStringBitfield(),
                 watch.Elapsed);
+
+            Console.Error.Write($"Exported {exportCount} files in {watch.Elapsed}");
         }
         else
         {
@@ -494,7 +495,7 @@ public static class Program
                 break;
         }
 
-        foreach (var bitmap in bitmaps)
+        foreach (var bitmap in bitmaps.Where(b => b != null))
         {
             if (bitmap is null) continue;
             bool SaveHdrTexturesAsHdr = true;
