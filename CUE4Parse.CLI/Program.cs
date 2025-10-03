@@ -118,7 +118,7 @@ public static class Program
         );
 
         var outputFormatOption = new Option<string>(
-            new[]{"--output-format", "-f"},
+            new[]{"--output-format", "-t"},
             () => "auto",
             "Output format (json, png, fbx, etc.)"
         );
@@ -129,8 +129,8 @@ public static class Program
         );
 
         var overwriteOption = new Option<bool>(
-            new[]{"--overwrite", "-w"},
-            "Overwrite existing files"
+            new[]{"--force-overwrite", "-f"},
+            "Force overwrite existing files"
         );
 
         // Create root command
