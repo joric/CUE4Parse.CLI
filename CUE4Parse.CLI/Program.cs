@@ -37,7 +37,6 @@ using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.Utils;
 using Newtonsoft.Json;
 using Serilog;
-using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 using System.CommandLine;
@@ -67,7 +66,8 @@ public static class Program
     {
         // Configure logging to be minimal for CLI use
         //Log.Logger = new LoggerConfiguration().MinimumLevel.Information().WriteTo.Console().CreateLogger();
-        Log.Logger = new LoggerConfiguration().MinimumLevel.Fatal().WriteTo.Console().CreateLogger();
+        //Log.Logger = new LoggerConfiguration().MinimumLevel.Fatal().WriteTo.Console().CreateLogger();
+        Log.Logger = new LoggerConfiguration().MinimumLevel.Error().WriteTo.Console().CreateLogger();
 
         // Define CLI options
         var directoryOption = new Option<string>(
@@ -506,7 +506,7 @@ public static class Program
                 break;
         }
 
-        foreach (var bitmap in bitmaps.Where(b => b != null))
+        foreach (var bitmap in bitmaps)
         {
             if (bitmap is null) continue;
             bool SaveHdrTexturesAsHdr = true;
