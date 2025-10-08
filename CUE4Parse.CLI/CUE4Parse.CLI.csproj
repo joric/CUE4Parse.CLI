@@ -1,36 +1,42 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-      <OutputType>Exe</OutputType>
-      <TargetFramework>net8.0</TargetFramework>
-      <ImplicitUsings>enable</ImplicitUsings>
-      <Nullable>enable</Nullable>
-      <PlatformTarget>x64</PlatformTarget>
-      <Platforms>AnyCPU;x64</Platforms>
-      <ProductName>CUE4Parse.CLI</ProductName>
-      <Description>CUE4Parse.CLI</Description>
-      <Version>0.0.4.0</Version>
-      <ProductVersion>$(Version)</ProductVersion>
-      <AssemblyVersion>$(Version)</AssemblyVersion>
-      <FileVersion>$(Version)</FileVersion>
-      <InformationalVersion>$(Version)</InformationalVersion>
-      <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+        <Version>0.0.5.0</Version>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+
+        <PublishTrimmed>true</PublishTrimmed>
+        <TrimMode>link</TrimMode>
+        <TrimmerDefaultAction>link</TrimmerDefaultAction>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <PublishSingleFile>true</PublishSingleFile>
+        <SelfContained>true</SelfContained>
+
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+
+        <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+        <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <DebugType>none</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
-      <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+        <TrimmerRootAssembly Include="CUE4Parse" />
+        <TrimmerRootAssembly Include="Newtonsoft.Json" />
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\CUE4Parse-Conversion\CUE4Parse-Conversion.csproj" />
-      <ProjectReference Include="..\CUE4Parse\CUE4Parse.csproj" />
+        <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     </ItemGroup>
 
-    <Target Name="CopyLibs" AfterTargets="PostBuildEvent">
-    </Target>
-
-    <Target Name="PublishCopyLibs" AfterTargets="CopyFilesToOutputDirectory">
-    </Target>
+    <ItemGroup>
+        <ProjectReference Include="..\CUE4Parse-Conversion\CUE4Parse-Conversion.csproj" />
+        <ProjectReference Include="..\CUE4Parse\CUE4Parse.csproj" />
+    </ItemGroup>
 
 </Project>
