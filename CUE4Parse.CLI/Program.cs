@@ -253,7 +253,7 @@ internal static class Program
             packagePaths.Add("*");
         }
 
-        // final filtering by wildcards an paths
+        // final filtering by wildcards and paths
         var packages = new List<CUE4Parse.FileProvider.Objects.GameFile>();
 
         foreach (var path in packagePaths)
