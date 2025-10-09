@@ -65,16 +65,16 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        var sources     = new Option<string[]>(new[] { "-i", "--input-dir" },   "Input game directory");
-        var destination = new Option<string>  (new[] { "-o", "--output-dir" },  "Output directory");
+        var sources     = new Option<string[]>(new[] { "-i", "--input" },       "Input game directory");
+        var destination = new Option<string>  (new[] { "-o", "--output" },      "Output directory");
         var inputs      = new Option<string[]>(new[] { "-p", "--package" },     "Package path or wildcard pattern (repeatable)");
         var files       = new Option<string[]>(new[] { "-c", "--config" },      "Package list (repeatable)");
-        var game        = new Option<string>  (new[] { "-g", "--game-version" },()=>"GAME_UE5_LATEST", "Game version");
+        var game        = new Option<string>  (new[] { "-g", "--game" },        ()=>"GAME_UE5_LATEST", "Game version");
         var keys        = new Option<string[]>(new[] { "-k", "--key" },         "AES key in hex format (repeatable)");
         var mappings    = new Option<string>  (new[] { "-m", "--mappings" },    "Mappings file");
         var format      = new Option<string>  (new[] { "-f", "--format" },      ()=> "auto", "Output format: raw, json, csv");
-        var list        = new Option<bool>    (new[] { "-l", "--list" },        "List packages (supports csv format, if specified)");
-        var overwrite   = new Option<bool>    (new[] { "-y", "--overwrite" },   "Overwrite existing files");
+        var list        = new Option<bool>    (new[] { "-l", "--list" },        "List matching packages (supports csv)");
+        var overwrite   = new Option<bool>    (new[] { "-y", "--yes" },         "Overwrite existing files");
         var verbose     = new Option<bool>    (new[] { "-v", "--verbose" },     "Enable verbose output");
 
         static string GetExamples()
@@ -156,7 +156,7 @@ internal static class Program
 
         if (verbose)
         {
-            Log.Logger = new LoggerConfiguration().MinimumLevel.Information().WriteTo.Console().CreateLogger();
+            Log.Logger = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Console().CreateLogger();
         }
         else
         {
@@ -213,17 +213,6 @@ internal static class Program
         Console.Error.WriteLine($"Total assets: {provider.Files.Count}");
         Console.Error.WriteLine($"Output format: {format}");
 
-        if (list) {
-            foreach (var pkg in provider.Files.Keys.OrderBy(x => x).ToList())
-            {
-                if (!string.IsNullOrEmpty(format) && format == "csv")
-                    Console.WriteLine($"{pkg},{provider.Files[pkg].Size}");
-                else
-                    Console.WriteLine(pkg);
-            }
-            return;
-        }
-
         // init detex library for BCD encoding
         var detexPath = Path.Combine(Path.GetTempPath(), DetexHelper.DLL_NAME);
 
@@ -268,7 +257,7 @@ internal static class Program
             {
                 // Path contains wildcard, do filtering
                 matched = PathSearch.Filter(provider.Files.Keys, path).Select(key => provider.Files[key]).ToList();
-                Log.Information($"Added wildcard: {path} ({packages.Count} matches)");
+                Console.Error.WriteLine($"Added wildcard: {path} ({matched.Count} matches)");
             }
             else
             {   // No wildcard, just get the single entry if it exists
@@ -307,7 +296,7 @@ internal static class Program
             Console.Error.WriteLine("Output directory is not specified.");
             return;
         } else {
-            Program._exportDirectory = destination;
+            Program._exportDirectory = NormPath(destination);
         }
 
         var counter = 0;
@@ -334,7 +323,8 @@ internal static class Program
                 return;
             }
 
-            Console.Error.Write($"Exporting package {counter+1} of {packages.Count}...         \r");
+            if (!verbose)
+                Console.Error.Write($"Exporting package {counter+1} of {packages.Count}...         \r");
 
             var folder = package.Path.SubstringBeforeLast('/');
             string ext = Path.GetExtension(package.Name);
@@ -466,9 +456,10 @@ internal static class Program
 
         watch.Stop();
 
-        string message = $"Processed {packages.Count} packages in {watch.Elapsed}";
-        Console.Error.WriteLine(message);
-        Log.Information(message);
+        if (!verbose)
+            Console.Error.WriteLine($"Processed {packages.Count} packages in {watch.Elapsed}");
+
+        Log.Information("Processed {Packages.Count} packages in {watch.Elapsed}", packages.Count, watch.Elapsed);
 
         return;
     }
@@ -485,7 +476,6 @@ internal static class Program
     {
         var name = package.Name;
         var outPath = Path.Combine(_exportDirectory, folder, name);
-        outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
 
         if (!CheckFile(outPath)) return;
         Directory.CreateDirectory(Path.Combine(_exportDirectory, folder));
@@ -498,7 +488,6 @@ internal static class Program
     {
         string fileName = Path.ChangeExtension(name, ".json");
         var outPath = Path.Combine(_exportDirectory, folder, fileName);
-        outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
 
         if (!CheckFile(outPath)) return;
         Directory.CreateDirectory(Path.Combine(_exportDirectory, folder));
@@ -516,9 +505,16 @@ internal static class Program
     private static void SaveTexture(string folder, UTexture texture, ETexturePlatform platform, ExporterOptions options, ref int exportCount)
     {
         var outPath = Path.Combine(_exportDirectory, folder, texture.Name);
-        outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
 
-        // TODO: Add early exit to skip reading image data if file exists
+        foreach (var ext in new[] { ".png", ".hdr" })
+        {
+            var path = Path.ChangeExtension(outPath, ext);
+            if (!CheckFile(path, true))
+            {
+                CheckFile(path);
+                return;
+            }
+        }
 
         var bitmaps = new[] { texture.Decode(platform) };
         switch (texture)
@@ -550,16 +546,17 @@ internal static class Program
         WriteToLog(folder, logMessage, ref exportCount);
     }
 
-    private static bool CheckFile(string outPath)
+    private static bool CheckFile(string outPath, bool silent=false)
     {
-        string filePath = outPath.Replace('/', Path.DirectorySeparatorChar);
-
         bool skipFile = !_overwrite && File.Exists(outPath);
 
-        if (skipFile)
-            Log.Information($"Already exists {filePath}");
-        else
-            Log.Information($"Writing {filePath}");
+        if (!silent)
+        {
+            if (skipFile)
+                Log.Warning("Already exists {Path}", NormPath(outPath));
+            else
+                Log.Information("Writing {Path}", NormPath(outPath));
+        }
 
         return !skipFile;
     }
@@ -567,7 +564,7 @@ internal static class Program
     private static void WriteToLog(string folder, string logMessage, ref int exportCount)
     {
         //Console.Error.WriteLine($"Exported {logMessage} out of {folder}");
-        Log.Information($"Exported {logMessage} out of {folder}");
+        //Log.Information($"Exported {logMessage} out of {folder}");
         exportCount++;
     }
 }
