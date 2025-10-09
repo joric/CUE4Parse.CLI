@@ -96,7 +96,10 @@ internal static class Program
             return sb.ToString();
         }
 
-        var root = new RootCommand($"CUE4Parse Command Line Interface")
+        var cliVersion = Assembly.GetExecutingAssembly().GetName().Version;
+        var libVersion = typeof(DefaultFileProvider).Assembly.GetName().Version;
+
+        var root = new RootCommand($"CUE4Parse.CLI v{cliVersion} (built with CUE4Parse {libVersion})")
         {
             sources, destination, inputs, files, game, keys, mappings, format, list, overwrite, verbose
         };
@@ -172,10 +175,6 @@ internal static class Program
         var directory = sources.Length>0 ? sources[0] : null;
 
         if (string.IsNullOrEmpty(directory)) return;
-
-        var cliVersion = Assembly.GetExecutingAssembly().GetName().Version;
-        var libVersion = typeof(DefaultFileProvider).Assembly.GetName().Version;
-        Console.Error.WriteLine($"CUE4Parse.CLI v{cliVersion} (built with CUE4Parse {libVersion})");
 
         Console.Error.WriteLine($"Loading {NormPath(directory)}...");
 
@@ -393,6 +392,8 @@ internal static class Program
                 return;
             }
 
+            bool parsed = false;
+
             // optimized way of checking for exports type without loading most of them
             for (var i = 0; i < pkg.ExportMapLength; i++)
             {
@@ -416,6 +417,8 @@ internal static class Program
                         {
                             Log.Warning(e, "failed to decode {TextureName}", texture.Name);
                         }
+                        parsed = true;
+
                         break;
                     }
                     case USoundWave when type.HasFlag(ExportType.Sound):
@@ -429,6 +432,7 @@ internal static class Program
                             var fileName = $"{pointer.Object.Value.Name}.{mediaFormat.ToLower()}";
                             WriteToFile(folder, fileName, bytes, fileName, ref exportCount);
                         }
+                        parsed = true;
 
                         break;
                     }
@@ -445,12 +449,16 @@ internal static class Program
                             WriteToLog(folder, Path.GetFileName(filePath), ref exportCount);
                         }
                         break;
+                        parsed = true;
                     }
-                    default:
-                        exportCount++;
-                    break;
                 }
             }
+
+            if (!parsed)
+            {
+                SaveJson(folder, package.Name, pkg, ref exportCount);
+            }
+
             counter++;
 
         }); // parallel foreach, must end with "});"
@@ -479,12 +487,8 @@ internal static class Program
         var outPath = Path.Combine(_exportDirectory, folder, name);
         outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
 
-        // Early exit to skip reading data
-        if (!_overwrite && File.Exists(outPath))
-        {
-            WriteToLog(folder, $"{name} (already exists)", ref exportCount);
-            return;
-        }
+        if (!CheckFile(outPath)) return;
+        Directory.CreateDirectory(Path.Combine(_exportDirectory, folder));
 
         byte[] bytes = provider.Files[package.Path].Read();
         WriteToFile(folder, name, bytes, $"{name}", ref exportCount);
@@ -493,17 +497,10 @@ internal static class Program
     private static void SaveJson(string folder, string name, IPackage pkg, ref int exportCount)
     {
         string fileName = Path.ChangeExtension(name, ".json");
-
         var outPath = Path.Combine(_exportDirectory, folder, fileName);
         outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
 
-        // Early exit to skip reading data
-        if (!_overwrite && File.Exists(outPath))
-        {
-            WriteToLog(folder, $"{name} (already exists)", ref exportCount);
-            return;
-        }
-
+        if (!CheckFile(outPath)) return;
         Directory.CreateDirectory(Path.Combine(_exportDirectory, folder));
 
         IEnumerable<UObject> exports = pkg.GetExports();
@@ -521,19 +518,7 @@ internal static class Program
         var outPath = Path.Combine(_exportDirectory, folder, texture.Name);
         outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
 
-        // Early exit to skip reading data
-        if (!_overwrite)
-        {
-            foreach (var ext in new[] { ".png", ".hdr" })
-            {
-                var path = Path.ChangeExtension(outPath, ext);
-                if (!_overwrite && File.Exists(path))
-                {
-                    WriteToLog(folder, $"{path} (already exists)", ref exportCount);
-                    return;
-                }
-            }
-        }
+        // TODO: Add early exit to skip reading image data if file exists
 
         var bitmaps = new[] { texture.Decode(platform) };
         switch (texture)
@@ -559,25 +544,29 @@ internal static class Program
     private static void WriteToFile(string folder, string fileName, byte[] bytes, string logMessage, ref int exportCount)
     {
         var outPath = Path.Combine(_exportDirectory, folder, fileName);
-        outPath = outPath.Replace('/', Path.DirectorySeparatorChar);
-
-        if (!_overwrite && File.Exists(outPath))
-        {
-            WriteToLog(folder, $"{outPath} (already exists)", ref exportCount);
-            return;
-        }
-
+        if (!CheckFile(outPath)) return;
         Directory.CreateDirectory(Path.Combine(_exportDirectory, folder));
-
         File.WriteAllBytesAsync(outPath, bytes);
-
         WriteToLog(folder, logMessage, ref exportCount);
+    }
+
+    private static bool CheckFile(string outPath)
+    {
+        string filePath = outPath.Replace('/', Path.DirectorySeparatorChar);
+
+        bool skipFile = !_overwrite && File.Exists(outPath);
+
+        if (skipFile)
+            Log.Information($"Already exists {filePath}");
+        else
+            Log.Information($"Writing {filePath}");
+
+        return !skipFile;
     }
 
     private static void WriteToLog(string folder, string logMessage, ref int exportCount)
     {
         //Console.Error.WriteLine($"Exported {logMessage} out of {folder}");
-
         Log.Information($"Exported {logMessage} out of {folder}");
         exportCount++;
     }
