@@ -1,10 +1,13 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading.Tasks;
 using CUE4Parse.UE4.Assets;
+using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Exceptions;
+using CUE4Parse.UE4.IO.Objects;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
@@ -226,6 +229,7 @@ namespace CUE4Parse.UE4.Objects.UObject
         public int CreateBeforeCreateDependencies;
         public long ScriptSerializationStartOffset;
         public long ScriptSerializationEndOffset;
+        public ulong? PublicExportHash;
 
         public string ClassName;
 
@@ -298,6 +302,40 @@ namespace CUE4Parse.UE4.Objects.UObject
         public override string ToString()
         {
             return $"{ObjectName.Text} ({ClassIndex.Name})";
+        }
+
+        public ulong GetPublicExportHash()
+        {
+            if (PublicExportHash.HasValue) return PublicExportHash.Value;
+
+            if ((ObjectFlags & (uint)EObjectFlags.RF_Public) == 0)
+            {
+                PublicExportHash = 0;
+            }
+            else
+            {
+                if (OuterIndex is null || OuterIndex.IsNull)
+                {
+                    PublicExportHash = FPackageId.FromName(ObjectName.Text).id;
+                }
+                else
+                {
+                    var sb = new StringBuilder(128);
+                    OuterIndex?.ResolvedObject?.GetPathName(false, sb);
+                    if (sb.Length > 0)
+                        sb.Append('/');
+                    sb.Append(ObjectName.Text);
+                    PublicExportHash = FPackageId.FromName(sb.ToString()).id;
+                }
+            }
+
+            return PublicExportHash.Value;
+        }
+
+        // TODO: Implement global import index calculation
+        public FPackageObjectIndex GetGlobalImportIndex()
+        {
+            return new(0u);
         }
     }
 

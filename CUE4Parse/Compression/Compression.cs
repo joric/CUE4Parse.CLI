@@ -38,12 +38,13 @@ namespace CUE4Parse.Compression
                     Buffer.BlockCopy(compressed, compressedOffset, uncompressed, uncompressedOffset, compressedSize);
                     return;
                 case CompressionMethod.XB1Zlib:
+                case CompressionMethod.XboxOneGDKZlib:
                 case CompressionMethod.Zlib:
                     ZlibHelper.Decompress(compressed, compressedOffset, compressedSize, uncompressed, uncompressedOffset, uncompressedSize, reader);
                     return;
                 case CompressionMethod.Gzip:
                 {
-                    using var gzip = new GZipStream(srcStream, CompressionMode.Decompress);
+                    using var gzip = new GZipStream(srcStream, System.IO.Compression.CompressionMode.Decompress);
                     using var temp = new MemoryStream(uncompressed, uncompressedOffset, uncompressedSize, true);
                     gzip.CopyTo(temp);
                     return;
@@ -77,7 +78,7 @@ namespace CUE4Parse.Compression
                 }
                 default:
                     if (reader != null) throw new UnknownCompressionMethodException(reader, $"Compression method \"{method}\" is unknown");
-                    else throw new UnknownCompressionMethodException($"Compression method \"{method}\" is unknown");
+                    throw new UnknownCompressionMethodException($"Compression method \"{method}\" is unknown");
             }
         }
     }

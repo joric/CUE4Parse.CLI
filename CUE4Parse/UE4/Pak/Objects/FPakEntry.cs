@@ -2,6 +2,7 @@ using System;
 using System.Runtime.CompilerServices;
 using CUE4Parse.Compression;
 using CUE4Parse.Encryption.Aes;
+using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
@@ -308,6 +309,25 @@ public class FPakEntry : VfsEntry
             Ar.Position++;
         }
 
+        if (reader.Game is EGame.GAME_InfinityNikki)
+        {
+            var compressionBlocksNum = (bitfield >> 6) & 0xFFFF;
+            var isOffset32BitSafe = (bitfield >> 31) & 1;
+            var isSize32BitSafe = (bitfield >> 22) & 1;
+            var isUncompressedSize32BitSafe = (bitfield >> 30) & 1;
+            var compressedSizeBacked = bitfield & 0x3F;
+            var isEncrypted = (bitfield >> 29) & 1;
+            var compressionMethodIndex = (bitfield >> 23) & 0x3F;
+
+            bitfield = compressedSizeBacked
+                       | (compressionBlocksNum << 6)
+                       | (isEncrypted << 22)
+                       | (compressionMethodIndex << 23)
+                       | (isSize32BitSafe << 29)
+                       | (isUncompressedSize32BitSafe << 30)
+                       | (isOffset32BitSafe << 31);
+        }
+
         uint compressionBlockSize = (bitfield & 0x3f) == 0x3f ? Ar.Read<uint>() : (bitfield & 0x3f) << 11;
 
         // Filter out the CompressionMethod.
@@ -428,10 +448,10 @@ public class FPakEntry : VfsEntry
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override byte[] Read() => Vfs.Extract(this);
+    public override byte[] Read(FByteBulkDataHeader? header = null)  => Vfs.Extract(this, header);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public override FArchive CreateReader() => new FByteArchive(Path, Read(), Vfs.Versions);
+    public override FArchive CreateReader(FByteBulkDataHeader? header = null) => new FByteArchive(Path, Read(header), Vfs.Versions);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public FPakEntry(PakFileReader reader, string path, FArchive Ar, EGame game) : base(reader, path)

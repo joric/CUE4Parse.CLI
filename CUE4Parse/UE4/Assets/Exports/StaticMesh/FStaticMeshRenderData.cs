@@ -80,7 +80,7 @@ public class FStaticMeshRenderData
                 var bHasRayTracingProxy = Ar.ReadBoolean();
                 if (bHasRayTracingProxy)
                 {
-                    var rayTracingProxy = new FStaticMeshRayTracingProxy(Ar);
+                    _ = new FStaticMeshRayTracingProxy(Ar); // RayTracingProxy
                 }
             }
 
@@ -92,7 +92,7 @@ public class FStaticMeshRenderData
             var stripped = false;
             if (Ar.Ver >= EUnrealEngineObjectUE4Version.RENAME_WIDGET_VISIBILITY)
             {
-                var stripDataFlags = Ar.Read<FStripDataFlags>();
+                var stripDataFlags = new FStripDataFlags(Ar);
                 stripped = stripDataFlags.IsAudioVisualDataStripped();
                 if (Ar.Game >= EGame.GAME_UE4_21)
                 {
@@ -107,7 +107,7 @@ public class FStaticMeshRenderData
                     var bValid = Ar.ReadBoolean();
                     if (bValid)
                     {
-                        if (Ar.Game is >= EGame.GAME_UE5_0 or EGame.GAME_TerminullBrigade)
+                        if (Ar.Game is >= EGame.GAME_UE5_0 or EGame.GAME_TerminullBrigade or EGame.GAME_WutheringWaves)
                         {
                             _ = new FDistanceFieldVolumeData5(Ar);
                         }
@@ -116,6 +116,8 @@ public class FStaticMeshRenderData
                             _ = new FDistanceFieldVolumeData(Ar);
                         }
                     }
+                    if (Ar.Game is EGame.GAME_TheFinals)
+                        _ = Ar.ReadArray(() => new FDistanceFieldVolumeData5(Ar));
                 }
             }
         }
@@ -140,7 +142,7 @@ public class FStaticMeshRenderData
 
         if (Ar.Versions["StaticMesh.HasLODsShareStaticLighting"])
         {
-            if (Ar.Game >= EGame.GAME_UE5_6)
+            if (Ar.Game is >= EGame.GAME_UE5_6 or EGame.GAME_GrayZoneWarfare)
             {
                 var bRenderDataFlags = Ar.Read<byte>();
                 bLODsShareStaticLighting = (bRenderDataFlags & 1) != 0;
@@ -217,7 +219,7 @@ public class FStaticMeshRenderData
             }
         }
 
-        if (Ar.Game >= EGame.GAME_UE5_4) _ = Ar.Read<FStripDataFlags>();
+        if (Ar.Game >= EGame.GAME_UE5_4) _ = new FStripDataFlags(Ar);
     }
 
     private void SerializeInlineDataRepresentations(FAssetArchive Ar)

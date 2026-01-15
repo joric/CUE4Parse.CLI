@@ -3,10 +3,10 @@ using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 
 namespace CUE4Parse.UE4.Objects.StructUtils;
 
+[JsonConverter(typeof(EnumConverter<EPropertyBagPropertyType>))]
 public enum EPropertyBagPropertyType : byte
 {
     None,
@@ -31,6 +31,7 @@ public enum EPropertyBagPropertyType : byte
     Count
 };
 
+[JsonConverter(typeof(EnumConverter<EPropertyBagContainerType>))]
 public enum EPropertyBagContainerType : byte
 {
     None,
@@ -40,11 +41,17 @@ public enum EPropertyBagContainerType : byte
 
 public class FInstancedPropertyBag : IUStruct
 {
-    public FPropertyBagPropertyDesc[] PropertyDescs;
+    public FPropertyBagPropertyDesc[] PropertyDescs = [];
     public int SerialSize;
 
     public FInstancedPropertyBag(FAssetArchive Ar)
     {
+        if (this is FInstancedOverridablePropertyBag
+            && FOverridablePropertyBagCustomVersion.Get(Ar) < FOverridablePropertyBagCustomVersion.Type.FixSerializer)
+        {
+            return;
+        }
+
         var Version = EVersion.LatestVersion;
         if (FPropertyBagCustomVersion.Get(Ar) < FPropertyBagCustomVersion.Type.ContainerTypes)
         {
@@ -82,13 +89,14 @@ public struct FPropertyBagPropertyDesc
     public FPackageIndex ValueTypeObject;
     public FGuid ID;
     public FName Name;
-    [JsonConverter(typeof(StringEnumConverter))]
     public EPropertyBagPropertyType ValueType;
-    [JsonConverter(typeof(StringEnumConverter))]
     public EPropertyBagContainerType ContainerType;
+    public EPropertyFlags PropertyFlags;
     public FPropertyBagContainerTypes ContainerTypes;
-    public FPropertyBagPropertyDescMetaData[] MetaData;
-    public FPackageIndex MetaClass;
+    public FPropertyBagPropertyDescMetaData[]? MetaData;
+    public FPackageIndex? MetaClass;
+    public EPropertyBagPropertyType KeyType;
+    public FPackageIndex? KeyTypeObject;
 
     public FPropertyBagPropertyDesc(FAssetArchive Ar)
     {
@@ -116,6 +124,17 @@ public struct FPropertyBagPropertyDesc
             {
                 MetaClass = new FPackageIndex(Ar);
             }
+        }
+
+        if (FPropertyBagCustomVersion.Get(Ar) >= FPropertyBagCustomVersion.Type.PropertyFlags)
+        {
+            PropertyFlags = Ar.Read<EPropertyFlags>();
+        }
+
+        if (FPropertyBagCustomVersion.Get(Ar) >= FPropertyBagCustomVersion.Type.KeyTypes)
+        {
+            KeyType = Ar.Read<EPropertyBagPropertyType>();
+            KeyTypeObject = new FPackageIndex(Ar);
         }
     }
 }

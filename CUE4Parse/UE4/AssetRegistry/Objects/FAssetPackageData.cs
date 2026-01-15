@@ -1,4 +1,4 @@
-﻿using CUE4Parse.UE4.AssetRegistry.Readers;
+using CUE4Parse.UE4.AssetRegistry.Readers;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.Core.Serialization;
 using CUE4Parse.UE4.Objects.UObject;
@@ -43,13 +43,13 @@ namespace CUE4Parse.UE4.AssetRegistry.Objects
             if (Ar.Header.Version >= FAssetRegistryVersionType.AddedChunkHashes)
             {
                 // TMap<FIoChunkId, FIoHash> ChunkHashes;
-                Ar.Position += Ar.Read<int>() * (12 + 20);
+                Ar.Position += Ar.Read<int>() * (12 + 20) + 4;
             }
             if (Ar.Header.Version >= FAssetRegistryVersionType.WorkspaceDomain)
             {
                 if (Ar.Header.Version >= FAssetRegistryVersionType.PackageFileSummaryVersionChange)
                 {
-                    FileVersionUE = Ar.Read<FPackageFileVersion>();
+                    FileVersionUE = new FPackageFileVersion(Ar.Read<int>(), Ar.Read<int>());
                 }
                 else
                 {

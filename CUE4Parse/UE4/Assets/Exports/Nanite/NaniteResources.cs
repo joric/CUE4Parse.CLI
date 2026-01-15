@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Linq;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Objects.Core.Math;
@@ -23,7 +24,15 @@ public class FNaniteResources
     [JsonIgnore] public FPageStreamingState[] PageStreamingStates = [];
     [JsonIgnore] public uint[] PageDependencies = [];
     public FMatrix3x4[] AssemblyTransforms = [];
+    public uint[] AssemblyBoneAttachmentData;
+    public ulong VoxelMaterialsMask;
     public FBoxSphereBounds? MeshBounds = null; // FBoxSphereBounds3f
+    
+    /// <summary>
+    /// Dictionary of page ranges relevant to streaming requests and fixups
+    /// </summary>
+    public FPageRangeKey[] PageRangeLookup;
+    
     /// <summary>The number of root pages found outside of the bulk page.</summary>
     public int NumRootPages = 0;
     /// <summary>The precision which which vertex positions are recorded with.</summary>
@@ -44,7 +53,7 @@ public class FNaniteResources
 
     [JsonIgnore] public FNaniteStreamableData?[] LoadedPages = [];
     [JsonIgnore] public readonly FAssetArchive Archive;
-    [JsonIgnore] private byte[] RootPages = [];
+    [JsonIgnore] private byte[] RootData = [];
     private List<uint> FailedPages = [];
 
     public FNaniteResources(FAssetArchive Ar)
@@ -55,23 +64,25 @@ public class FNaniteResources
         {
             ResourceFlags = Ar.Read<NaniteConstants.NANITE_RESOURCE_FLAG>();
             StreamablePages = new FByteBulkData(Ar);
-            RootPages = Ar.ReadArray<byte>();
+            RootData = Ar.ReadArray<byte>();
             PageStreamingStates = Ar.ReadArray(() => new FPageStreamingState(Ar));
-            // TODO: revert no normal array, as we don't use Hierarchy
-            var count = Ar.Read<uint>();
-            HierarchyNodes = new FPackedHierarchyNode[count];
-            for (uint i = 0; i < count; i++)
-            {
-                HierarchyNodes[i] = new FPackedHierarchyNode(Ar, i);
-            }
+            HierarchyNodes = Ar.ReadArray(() => new FPackedHierarchyNode(Ar));
             HierarchyRootOffsets = Ar.ReadArray<uint>();
-            PageDependencies = Ar.ReadArray<uint>();
+            PageDependencies = Ar.ReadArray(() => Ar.Game >= EGame.GAME_UE5_7 ? Ar.Read<ushort>() : Ar.Read<uint>());
             if (Ar.Game >= EGame.GAME_UE5_6)
             {
                 AssemblyTransforms = Ar.ReadArray<FMatrix3x4>();
+
+                if (Ar.Game >= EGame.GAME_UE5_7)
+                {
+                    AssemblyBoneAttachmentData = Ar.ReadArray<uint>();
+                    PageRangeLookup = Ar.ReadArray<FPageRangeKey>();
+                }
+                
                 MeshBounds = new FBoxSphereBounds(Ar.Read<FVector>(), Ar.Read<FVector>(), Ar.Read<float>());
             }
             ImposterAtlas = Ar.ReadArray<ushort>();
+            if (Ar.Game is EGame.GAME_Aion2) Ar.SkipFixedArray(1); // same length as ImposterAtlas
             NumRootPages = Ar.Read<int>();
             PositionPrecision = Ar.Read<int>();
             if (Ar.Game >= EGame.GAME_UE5_2) NormalPrecision = Ar.Read<int>();
@@ -86,6 +97,7 @@ public class FNaniteResources
                 NumInputTexCoords = Ar.Read<ushort>();
             }
             if (Ar.Game >= EGame.GAME_UE5_1) NumClusters = Ar.Read<uint>();
+            if (Ar.Game >= EGame.GAME_UE5_7) VoxelMaterialsMask = Ar.Read<ulong>();
         }
     }
 
@@ -131,20 +143,27 @@ public class FNaniteResources
             return true;
         }
 
+        var versionContainer = Archive.Versions;
+        if (Archive.Game == EGame.GAME_TheFirstDescendant)
+        {
+            versionContainer = (VersionContainer) versionContainer.Clone();
+            versionContainer.Game = EGame.GAME_UE5_3;
+        }
+
         var page = PageStreamingStates[pageIndex];
         byte[] buffer = ArrayPool<byte>.Shared.Rent((int)page.BulkSize);
         try
         {
             if (pageIndex < NumRootPages)
             {
-                Buffer.BlockCopy(RootPages, (int) page.BulkOffset, buffer, 0, (int) page.BulkSize);
+                Buffer.BlockCopy(RootData, (int) page.BulkOffset, buffer, 0, (int) page.BulkSize);
             }
             else
             {
                 Buffer.BlockCopy(StreamablePages.Data, (int) page.BulkOffset, buffer, 0, (int) page.BulkSize);
             }
 
-            using var pageArchive = new FByteArchive($"NaniteStreamablePage{pageIndex}", buffer, Archive.Versions);
+            using var pageArchive = new FByteArchive($"NaniteStreamablePage{pageIndex}", buffer, versionContainer);
             outPage = new FNaniteStreamableData(pageArchive, this, pageIndex);
         }
         catch (Exception ex)

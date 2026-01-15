@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.Assets.Readers;
@@ -88,6 +89,9 @@ public class FPropertyTag
     public FGuid? PropertyGuid;
     public FPropertyTagType? Tag;
     public EPropertyTagFlags PropertyTagFlags;
+#if DEBUG
+    public long Position;
+#endif
 
     public EPropertyTagSerializeType SerializeType => PropertyTagFlags.HasFlag(EPropertyTagFlags.SkippedSerialize)
             ? EPropertyTagSerializeType.Skipped
@@ -99,6 +103,8 @@ public class FPropertyTag
     /// ArrayIndex > 0 is used as a fallback for UE4 games but in this case IsIndexed will be false on the first element of the array
     /// </summary>
     public bool IsIndexed => PropertyTagFlags.HasFlag(EPropertyTagFlags.HasArrayIndex) || ArrayIndex > 0;
+
+    public FPropertyTag() { }
 
     public FPropertyTag(FAssetArchive Ar, PropertyInfo info, ReadType type)
     {
@@ -112,6 +118,9 @@ public class FPropertyTag
         PropertyTagFlags = ArraySize > 1 ? EPropertyTagFlags.HasArrayIndex : EPropertyTagFlags.None;
 
         var pos = Ar.Position;
+#if DEBUG
+        Position = pos;
+#endif
         try
         {
             Tag = FPropertyTagType.ReadPropertyTagType(Ar, PropertyType.Text, TagData, type);
@@ -142,7 +151,7 @@ public class FPropertyTag
             }
             while (remaining > 0);
 
-            var typeName = nodes.ToArray().AsSpan();
+            var typeName = CollectionsMarshal.AsSpan(nodes);
             PropertyType = typeName.GetName();
             TagData = new FPropertyTagData(typeName, Name.Text);
 
@@ -193,6 +202,9 @@ public class FPropertyTag
         if (!readData) return;
 
         var pos = Ar.Position;
+#if DEBUG
+        Position = pos;
+#endif
         var finalPos = pos + Size;
         try
         {

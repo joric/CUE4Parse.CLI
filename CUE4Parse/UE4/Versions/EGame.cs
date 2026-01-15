@@ -27,6 +27,7 @@ public enum EGame : uint
     GAME_UE4_12 = GameUtils.GameUe4Base + (12 << 16),
     GAME_UE4_13 = GameUtils.GameUe4Base + (13 << 16),
         GAME_StateOfDecay2 = GAME_UE4_13 + 1,
+        GAME_WeHappyFew = GAME_UE4_13 + 2,
     GAME_UE4_14 = GameUtils.GameUe4Base + (14 << 16),
         GAME_TEKKEN7 = GAME_UE4_14 + 1,
         GAME_TransformersOnline = GAME_UE4_14 + 2,
@@ -92,6 +93,8 @@ public enum EGame : uint
         GAME_EtheriaRestart = GAME_UE4_26 + 17,
         GAME_EvilWest = GAME_UE4_26 + 18,
         GAME_ArenaBreakoutInfinite = GAME_UE4_26 + 19,
+        GAME_OctopathTravelerCoTC = GAME_UE4_26 + 20,
+        GAME_Psychonauts2 = GAME_UE4_26 + 20,
     GAME_UE4_27 = GameUtils.GameUe4Base + (27 << 16),
         GAME_Splitgate = GAME_UE4_27 + 1,
         GAME_HYENAS = GAME_UE4_27 + 2,
@@ -119,6 +122,11 @@ public enum EGame : uint
         GAME_LostSoulAside = GAME_UE4_27 + 24,
         GAME_GhostsofTabor = GAME_UE4_27 + 25,
         GAME_BlueProtocol = GAME_UE4_27 + 26,
+        GAME_LittleNightmares3 = GAME_UE4_27 + 27,
+        GAME_Raven2 = GAME_UE4_27 + 28,
+        GAME_DuetNightAbyss = GAME_UE4_27 + 29,
+        GAME_LiesofP = GAME_UE4_27 + 30,
+        GAME_BloodBowl3 = GAME_UE4_27 + 31,
     GAME_UE4_28 = GameUtils.GameUe4Base + (28 << 16),
 
     GAME_UE4_LATEST = GAME_UE4_28,
@@ -144,13 +152,14 @@ public enum EGame : uint
         GAME_LostRecordsBloomAndRage = GAME_UE5_2 + 5,
         GAME_DuneAwakening = GAME_UE5_2 + 6,
         GAME_TitanQuest2 = GAME_UE5_2 + 7,
+        GAME_PUBGBlackBudget = GAME_UE5_2 + 8,
     GAME_UE5_3 = GameUtils.GameUe5Base + (3 << 16),
         GAME_MarvelRivals = GAME_UE5_3 + 1,
         GAME_BlackStigma = GAME_UE5_3 + 2,
         GAME_Valorant = GAME_UE5_3 + 3,
         GAME_MonsterJamShowdown = GAME_UE5_3 + 4,
-        GAME_Rennsport = GAME_UE5_3 + 5,
-        GAME_AshesOfCreation = GAME_UE5_3 + 6,
+        GAME_Aion2 = GAME_UE5_3 + 5,
+        GAME_TheFinals = GAME_UE5_3 + 6,
         GAME_Avowed = GAME_UE5_3 + 7,
         GAME_MetalGearSolidDelta = GAME_UE5_3 + 8,
     GAME_UE5_4 = GameUtils.GameUe5Base + (4 << 16),
@@ -164,9 +173,14 @@ public enum EGame : uint
         GAME_TempestRising = GAME_UE5_4 + 8,
         GAME_MindsEye = GAME_UE5_4 + 9,
         GAME_DeadByDaylight = GAME_UE5_4 + 10,
-        GAME_Grounded2 = GAME_UE5_4 + 11,
+        GAME_Placeholder1 = GAME_UE5_4 + 11,
         GAME_MafiaTheOldCountry = GAME_UE5_4 + 12,
         GAME_2XKO = GAME_UE5_4 + 13,
+        GAME_Reanimal = GAME_UE5_4 + 14,
+        GAME_VEIN = GAME_UE5_4 + 15,
+        GAME_Placeholder2 = GAME_UE5_4 + 16,
+        GAME_OuterWorlds2 = GAME_UE5_4 + 17,
+        GAME_OctopathTraveler0 = GAME_UE5_4 + 18,
     GAME_UE5_5 = GameUtils.GameUe5Base + (5 << 16),
         GAME_Brickadia = GAME_UE5_5 + 1,
         GAME_Splitgate2 = GAME_UE5_5 + 2,
@@ -178,7 +192,12 @@ public enum EGame : uint
         GAME_FateTrigger = GAME_UE5_5 + 8,
         GAME_Squad = GAME_UE5_5 + 9,
         GAME_Borderlands4 = GAME_UE5_5 + 10,
+        GAME_Rennsport = GAME_UE5_5 + 11,
+        GAME_GrayZoneWarfare = GAME_UE5_5 + 12,
     GAME_UE5_6 = GameUtils.GameUe5Base + (6 << 16),
+        GAME_Grounded2 = GAME_UE5_6 + 1,
+        GAME_AshesOfCreation = GAME_UE5_6 + 2,
+        GAME_StyxBladesofGreed = GAME_UE5_6 + 3,
     GAME_UE5_7 = GameUtils.GameUe5Base + (7 << 16),
     GAME_UE5_8 = GameUtils.GameUe5Base + (8 << 16),
 
@@ -218,37 +237,45 @@ public static class GameUtils
             };
         }
 
-        return FPackageFileVersion.CreateUE4Version(game switch
+        if (game >= EGame.GAME_UE4_0)
         {
-            // General UE4 Versions
-            < EGame.GAME_UE4_1 => 342,
-            < EGame.GAME_UE4_2 => 352,
-            < EGame.GAME_UE4_3 => 363,
-            < EGame.GAME_UE4_4 => 382,
-            < EGame.GAME_UE4_5 => 385,
-            < EGame.GAME_UE4_6 => 401,
-            < EGame.GAME_UE4_7 => 413,
-            < EGame.GAME_UE4_8 => 434,
-            < EGame.GAME_UE4_9 => 451,
-            < EGame.GAME_UE4_10 => 482,
-            < EGame.GAME_UE4_11 => 482,
-            < EGame.GAME_UE4_12 => 498,
-            < EGame.GAME_UE4_13 => 504,
-            < EGame.GAME_UE4_14 => 505,
-            < EGame.GAME_UE4_15 => 508,
-            < EGame.GAME_UE4_16 => 510,
-            < EGame.GAME_UE4_17 => 513,
-            < EGame.GAME_UE4_18 => 513,
-            < EGame.GAME_UE4_19 => 514,
-            < EGame.GAME_UE4_20 => 516,
-            < EGame.GAME_UE4_21 => 516,
-            < EGame.GAME_UE4_22 => 517,
-            < EGame.GAME_UE4_23 => 517,
-            < EGame.GAME_UE4_24 => 517,
-            < EGame.GAME_UE4_25 => 518,
-            < EGame.GAME_UE4_26 => 518,
-            < EGame.GAME_UE4_27 => 522,
-            _ => (int) EUnrealEngineObjectUE4Version.AUTOMATIC_VERSION
+            return FPackageFileVersion.CreateUE4Version(game switch
+            {
+                // General UE4 Versions
+                < EGame.GAME_UE4_1 => 342,
+                < EGame.GAME_UE4_2 => 352,
+                < EGame.GAME_UE4_3 => 363,
+                < EGame.GAME_UE4_4 => 382,
+                < EGame.GAME_UE4_5 => 385,
+                < EGame.GAME_UE4_6 => 401,
+                < EGame.GAME_UE4_7 => 413,
+                < EGame.GAME_UE4_8 => 434,
+                < EGame.GAME_UE4_9 => 451,
+                < EGame.GAME_UE4_10 => 482,
+                < EGame.GAME_UE4_11 => 482,
+                < EGame.GAME_UE4_12 => 498,
+                < EGame.GAME_UE4_13 => 504,
+                < EGame.GAME_UE4_14 => 505,
+                < EGame.GAME_UE4_15 => 508,
+                < EGame.GAME_UE4_16 => 510,
+                < EGame.GAME_UE4_17 => 513,
+                < EGame.GAME_UE4_18 => 513,
+                < EGame.GAME_UE4_19 => 514,
+                < EGame.GAME_UE4_20 => 516,
+                < EGame.GAME_UE4_21 => 516,
+                < EGame.GAME_UE4_22 => 517,
+                < EGame.GAME_UE4_23 => 517,
+                < EGame.GAME_UE4_24 => 517,
+                < EGame.GAME_UE4_25 => 518,
+                < EGame.GAME_UE4_26 => 518,
+                < EGame.GAME_UE4_27 => 522,
+                _ => (int) EUnrealEngineObjectUE4Version.AUTOMATIC_VERSION
+            });
+        }
+
+        return FPackageFileVersion.CreateUE3Version(game switch
+        {
+            _ => (int)EUnrealEngineObjectUE3Version.AUTOMATIC_VERSION
         });
     }
 }

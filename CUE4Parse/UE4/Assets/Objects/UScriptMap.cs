@@ -1,11 +1,12 @@
-using CUE4Parse.UE4.Assets.Readers;
-using CUE4Parse.UE4.Exceptions;
 using System.Collections.Generic;
-using CUE4Parse.UE4.Assets.Objects.Properties;
-using Newtonsoft.Json;
-using CUE4Parse.UE4.Versions;
+using CUE4Parse.GameTypes.AoC.Objects;
 using CUE4Parse.GameTypes.DaysGone.Assets;
 using CUE4Parse.GameTypes.SOD2.Assets;
+using CUE4Parse.UE4.Assets.Objects.Properties;
+using CUE4Parse.UE4.Assets.Readers;
+using CUE4Parse.UE4.Exceptions;
+using CUE4Parse.UE4.Versions;
+using Newtonsoft.Json;
 
 namespace CUE4Parse.UE4.Assets.Objects;
 
@@ -14,20 +15,25 @@ public class UScriptMap
 {
     public Dictionary<FPropertyTagType, FPropertyTagType?> Properties;
 
-    public UScriptMap()
-    {
-        Properties = [];
-    }
+    public UScriptMap() => Properties = [];
+
+    public UScriptMap(Dictionary<FPropertyTagType, FPropertyTagType?> properties) => Properties = properties;
 
     public UScriptMap(FAssetArchive Ar, FPropertyTagData tagData, ReadType readType)
     {
         if (Ar.Ver < EUnrealEngineObjectUE4Version.PROPERTY_TAG_SET_MAP_SUPPORT)
         {
-            _ = Ar.Game switch
+            (tagData.InnerType, tagData.ValueType) = Ar.Game switch
             {
-                EGame.GAME_DaysGone => DaysGoneProperties.GetMapPropertyTypes(tagData.Name, out tagData.InnerType, out tagData.ValueType),
-                EGame.GAME_StateOfDecay2 => SOD2Properties.GetMapPropertyTypes(tagData.Name, out tagData.InnerType, out tagData.ValueType),
-                _ => false,
+                EGame.GAME_DaysGone => DaysGoneProperties.GetMapPropertyTypes(tagData.Name),
+                EGame.GAME_StateOfDecay2 => SOD2Properties.GetMapPropertyTypes(tagData.Name),
+                EGame.GAME_WeHappyFew => tagData.Name switch
+                {
+                    "PointMap" or "JunctionMap" or "RoadMap" => ("IntProperty", "StructProperty"),
+                    "States" => ("NameProperty", "StructProperty"),
+                    _ => (null, null)
+                },
+                _ => (null, null)
             };
         }
 
@@ -48,6 +54,8 @@ public class UScriptMap
                 FPropertyTagType.ReadPropertyTagType(Ar, tagData.InnerType, tagData.InnerTypeData, ReadType.MAP);
             }
         }
+
+        if (Ar.Game is EGame.GAME_AshesOfCreation && Ar is FAoCDBCReader) Ar.Position += 4;
 
         var type = readType == ReadType.RAW ? ReadType.RAW : ReadType.MAP;
         var numEntries = Ar.Read<int>();

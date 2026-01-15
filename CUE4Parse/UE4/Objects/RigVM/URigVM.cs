@@ -24,6 +24,7 @@ public class URigVM : Assets.Exports.UObject
     public FRigVMMemoryContainer? LiteralMemoryStorageOld;
     public FRigVMMemoryContainer? DefaultWorkMemoryStorageOld;
     public FRigVMMemoryContainer? DefaultDebugMemoryStorageOld;
+    public FRigVMRegistry_NoLock? LocalizedRegistry;
 
     public override void Deserialize(FAssetArchive Ar, long validPos)
     {
@@ -111,6 +112,15 @@ public class URigVM : Assets.Exports.UObject
         {
             DefaultWorkMemoryStorage = new FRigVMMemoryStorageStruct(Ar);
             DefaultDebugMemoryStorage = new FRigVMMemoryStorageStruct(Ar);
+        }
+
+        if (FRigVMObjectVersion.Get(Ar) >= FRigVMObjectVersion.Type.LocalizedRegistry)
+        {
+            var bStoredLocalizedRegistry = Ar.ReadBoolean();
+
+            if (!bStoredLocalizedRegistry) return;
+            var ArchivePosAfterSerializedRegistry = Ar.Read<long>();
+            LocalizedRegistry = new FRigVMRegistry_NoLock(Ar);
         }
     }
 
@@ -209,6 +219,12 @@ public class URigVM : Assets.Exports.UObject
         {
             writer.WritePropertyName(nameof(DefaultDebugMemoryStorageOld));
             serializer.Serialize(writer, DefaultDebugMemoryStorageOld);
+        }
+
+        if (LocalizedRegistry != null)
+        {
+            writer.WritePropertyName(nameof(LocalizedRegistry));
+            serializer.Serialize(writer, LocalizedRegistry);
         }
     }
 }

@@ -5,8 +5,10 @@ using System.IO;
 using CUE4Parse.FileProvider;
 using CUE4Parse.GameTypes.ACE7.Encryption;
 using CUE4Parse.UE4.Assets.Exports;
+using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Assets.Utils;
+using CUE4Parse.UE4.IO.Objects;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
@@ -28,6 +30,9 @@ namespace CUE4Parse.UE4.Assets
         public FPackageIndex[][]? DependsMap { get; }
         public FPackageIndex[]? PreloadDependencies { get; }
         public FObjectDataResource[]? DataResourceMap { get; }
+        public FSoftObjectPath[] SoftObjectPaths { get; }
+        public List<byte[]>? EditorThumbnails { get; }
+        public FPackageTrailer? Trailer { get; }
 
         private ExportLoader[] _exportLoaders; // Nonnull if useLazySerialization is false
 
@@ -35,8 +40,8 @@ namespace CUE4Parse.UE4.Assets
             : this(
                 uasset,
                 uexp,
-                ubulk != null ? new Lazy<FArchive?>(() => ubulk) : null,
-                uptnl != null ? new Lazy<FArchive?>(() => uptnl) : null,
+                ubulk != null ? _ => ubulk : null,
+                uptnl != null ? _ => uptnl : null,
                 provider,
                 useLazySerialization)
         { }
@@ -54,8 +59,8 @@ namespace CUE4Parse.UE4.Assets
         public Package(
             FArchive uasset,
             FArchive? uexp,
-            Lazy<FArchive?>? ubulk = null,
-            Lazy<FArchive?>? uptnl = null,
+            Func<FByteBulkDataHeader?, FArchive?>? ubulk = null,
+            Func<FByteBulkDataHeader?, FArchive?>? uptnl = null,
             IFileProvider? provider = null,
             bool useLazySerialization = true)
             : base(uasset.Name.SubstringBeforeLast('.'), provider)
@@ -88,6 +93,32 @@ namespace CUE4Parse.UE4.Assets
             ExportsLazy = new Lazy<UObject>[Summary.ExportCount];
             uassetAr.ReadArray(ExportMap, () => new FObjectExport(uassetAr));
 
+            if (Summary.ThumbnailTableOffset > 0)
+            {
+                EditorThumbnails = new List<byte[]>();
+                uassetAr.SeekAbsolute(Summary.ThumbnailTableOffset, SeekOrigin.Begin);
+                var count = uassetAr.Read<int>();
+
+                var thumbnailOffsets = new List<int>(count);
+
+                for (int i = 0; i < count; i++)
+                {
+                    uassetAr.SkipFString(); // objectShortClassName
+                    uassetAr.SkipFString(); // objectPathWithoutPackageName
+                    var thumbnailOffset = uassetAr.Read<int>();
+                    thumbnailOffsets.Add(thumbnailOffset);
+                }
+
+                foreach (var offset in thumbnailOffsets)
+                {
+                    uassetAr.SeekAbsolute(offset + 8, SeekOrigin.Begin);
+                    var totalBytes = uassetAr.Read<int>();
+                    if (totalBytes == 0) continue;
+                    var rawImage = uassetAr.ReadBytes(totalBytes);
+                    EditorThumbnails.Add(rawImage);
+                }
+            }
+
             if (!useLazySerialization && Summary is { DependsOffset: > 0, ExportCount: > 0 })
             {
                 uassetAr.SeekAbsolute(Summary.DependsOffset, SeekOrigin.Begin);
@@ -98,6 +129,16 @@ namespace CUE4Parse.UE4.Assets
             {
                 uassetAr.SeekAbsolute(Summary.PreloadDependencyOffset, SeekOrigin.Begin);
                 PreloadDependencies = uassetAr.ReadArray(Summary.PreloadDependencyCount, () => new FPackageIndex(uassetAr));
+            }
+
+            if (Summary is { SoftObjectPathsCount: > 0, SoftObjectPathsOffset: > 0 })
+            {
+                uassetAr.SeekAbsolute(Summary.SoftObjectPathsOffset, SeekOrigin.Begin);
+                SoftObjectPaths = uassetAr.ReadArray(Summary.SoftObjectPathsCount, () => new FSoftObjectPath(uassetAr));
+            }
+            else
+            {
+                SoftObjectPaths = [];
             }
 
             // if (Summary.SoftPackageReferencesCount > 0)
@@ -114,6 +155,12 @@ namespace CUE4Parse.UE4.Assets
                 {
                     DataResourceMap = uassetAr.ReadArray(() => new FObjectDataResource(uassetAr, dataResourceVersion));
                 }
+            }
+
+            if (!Summary.PackageFlags.HasFlag(EPackageFlags.PKG_Cooked) && Summary.PayloadTocOffset > 0)
+            {
+                uassetAr.SeekAbsolute(Summary.PayloadTocOffset, SeekOrigin.Begin);
+                Trailer = new FPackageTrailer(uassetAr);
             }
 
             if (!CanDeserialize) return;
@@ -210,6 +257,10 @@ namespace CUE4Parse.UE4.Assets
             FObjectImport outerMostImport;
             while (true)
             {
+                // special case when the outermost import is an export in this package
+                if (outerMostIndex.IsExport)
+                    return new ResolvedImportObject(import, this);
+
                 outerMostImport = ImportMap[-outerMostIndex.Index - 1];
                 if (outerMostImport.OuterIndex.IsNull)
                     break;
@@ -227,7 +278,25 @@ namespace CUE4Parse.UE4.Assets
                 return null;
             Package? importPackage = null;
             if (Provider.TryLoadPackage(outerMostImport.ObjectName.Text, out var package))
-                importPackage = package as Package;
+            {
+                if (package is IoPackage ioPackage)
+                {
+                    for (int i = 0; i < ioPackage.ExportMap.Length; i++)
+                    {
+                        FExportMapEntry export = ioPackage.ExportMap[i];
+                        if (ioPackage.CreateFNameFromMappedName(export.ObjectName).Text == import.ObjectName.Text)
+                        {
+                            return ioPackage.ResolvePackageIndex(new FPackageIndex(ioPackage, i + 1));
+                        }
+                    }
+#if DEBUG
+                    Log.Fatal("Missing import of ({0}): {1} in {2} was not found, but the package exists.", Name, import.ObjectName, ioPackage.GetFullName());
+#endif
+                    return new ResolvedImportObject(import, this);
+                }
+                else
+                    importPackage = package as Package;
+            }
             if (importPackage == null)
             {
 #if DEBUG
@@ -300,7 +369,7 @@ namespace CUE4Parse.UE4.Assets
                 "SharpClass" => new(() => new USharpClass(Name.Text)),
                 "PythonClass" => new(() => new UPythonClass(Name.Text)),
                 "ASClass" => new(() => new UASClass(Name.Text)),
-                "ScriptStruct" => new (() => new UScriptClass(Name.Text)),
+                "ScriptStruct" => new(() => new UScriptClass(Name.Text)),
                 _ => null
             };
         }

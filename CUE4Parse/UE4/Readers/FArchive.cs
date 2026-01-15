@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -206,6 +207,15 @@ namespace CUE4Parse.UE4.Readers
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SkipMultipleBulkArrayData(int count)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                SkipBulkArrayData();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void SkipFixedArray(int size = -1)
         {
             var num = Read<int>();
@@ -252,7 +262,7 @@ namespace CUE4Parse.UE4.Readers
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public bool ReadBoolean()
+        public virtual bool ReadBoolean()
         {
             var i = Read<int>();
             return i switch
@@ -340,12 +350,13 @@ namespace CUE4Parse.UE4.Readers
             if (length == int.MinValue)
                 throw new ArgumentOutOfRangeException(nameof(length), "Archive is corrupted");
 
-            if (Math.Abs(length) > Length - Position)
+            var strlength = length >= 0 ? length : -length * sizeof(ushort);
+            if (strlength > Length - Position)
             {
                 throw new ParserException($"Invalid FString length '{length}'");
             }
 
-            Position += length >= 0 ? length : -length * sizeof(ushort);
+            Position += strlength;
         }
 
         public virtual string ReadFString()
@@ -408,6 +419,18 @@ namespace CUE4Parse.UE4.Readers
             }
         }
 
+        public string ReadFUtf8String()
+        {
+            var length = Read<int>();
+            
+            if (length < 0) throw new ParserException($"Negative Utf8String length '{length}'");
+            if (length > Length - Position) throw new ParserException($"Invalid Utf8String length '{length}'");
+
+            return Encoding.UTF8.GetString(ReadBytes(length));
+        }
+        
+        public float ReadFReal() => Ver >= EUnrealEngineObjectUE5Version.LARGE_WORLD_COORDINATES ? (float)Read<double>() : Read<float>();
+        
         public virtual FName ReadFName() => new(ReadFString());
 
         public virtual UObject? ReadUObject()

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Linq;
 using CUE4Parse.GameTypes.FF7.Assets.Objects;
+using CUE4Parse.GameTypes.MK1.Assets.Objects;
 using CUE4Parse.UE4.Assets.Exports.StaticMesh;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Readers;
@@ -10,7 +12,6 @@ using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
-using CUE4Parse.GameTypes.MK1.Assets.Objects;
 
 namespace CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
 
@@ -55,7 +56,7 @@ public class FStaticLODModel
     // special version for reading from BulkData
     public FStaticLODModel(FArchive Ar, bool bHasVertexColors, bool isFilterEditorOnly) : this()
     {
-        var stripDataFlags = Ar.Read<FStripDataFlags>();
+        var stripDataFlags = new FStripDataFlags(Ar);
         var skelMeshVer = FSkeletalMeshCustomVersion.Get(Ar);
 
         Sections = Ar.ReadArray(() => new FSkelMeshSection(Ar, isFilterEditorOnly));
@@ -151,7 +152,7 @@ public class FStaticLODModel
     public FStaticLODModel(FAssetArchive Ar, bool bHasVertexColors) : this()
     {
         if (Ar.Game == EGame.GAME_SeaOfThieves) Ar.Position += 4;
-        var stripDataFlags = Ar.Read<FStripDataFlags>();
+        var stripDataFlags = new FStripDataFlags(Ar);
         var skelMeshVer = FSkeletalMeshCustomVersion.Get(Ar);
         if (Ar.Game == EGame.GAME_SeaOfThieves) Ar.Position += 4;
 
@@ -310,7 +311,7 @@ public class FStaticLODModel
     // UE ref https://github.com/EpicGames/UnrealEngine/blob/26450a5a59ef65d212cf9ce525615c8bd673f42a/Engine/Source/Runtime/Engine/Private/SkeletalMeshLODRenderData.cpp#L710
     public void SerializeRenderItem(FAssetArchive Ar, bool bHasVertexColors, byte numVertexColorChannels)
     {
-        var stripDataFlags = Ar.Read<FStripDataFlags>();
+        var stripDataFlags = new FStripDataFlags(Ar);
         var bIsLODCookedOut = false;
         if (Ar.Game != EGame.GAME_Splitgate)
             bIsLODCookedOut = Ar.ReadBoolean();
@@ -404,7 +405,7 @@ public class FStaticLODModel
 
     public void SerializeRenderItem_Legacy(FAssetArchive Ar, bool bHasVertexColors, byte numVertexColorChannels)
     {
-        var stripDataFlags = Ar.Read<FStripDataFlags>();
+        var stripDataFlags = new FStripDataFlags(Ar);
 
         Sections = new FSkelMeshSection[Ar.Read<int>()];
         for (var i = 0; i < Sections.Length; i++)
@@ -469,7 +470,7 @@ public class FStaticLODModel
 
     private void SerializeStreamedData(FArchive Ar, bool bHasVertexColors)
     {
-        var stripDataFlags = Ar.Read<FStripDataFlags>();
+        var stripDataFlags = new FStripDataFlags(Ar);
 
         Indices = new FMultisizeIndexContainer(Ar);
         VertexBufferGPUSkin = new FSkeletalMeshVertexBuffer { bUseFullPrecisionUVs = true };
@@ -495,6 +496,14 @@ public class FStaticLODModel
 
         if (HasClothData())
             ClothVertexBuffer = new FSkeletalMeshVertexClothBuffer(Ar);
+
+        if (Ar.Game is EGame.GAME_InfinityNikki && Sections.Any(x => x.CustomData.HasValue && x.CustomData.Value > 0))
+        {
+            _ = new FMultisizeIndexContainer(Ar);
+            _ = new FMultisizeIndexContainer(Ar);
+            _ = new FMultisizeIndexContainer(Ar);
+            _ = new FMultisizeIndexContainer(Ar);
+        }
 
         if (Ar.Game == EGame.GAME_Spectre)
         {
@@ -538,7 +547,7 @@ public class FStaticLODModel
         if (FFortniteMainBranchObjectVersion.Get(Ar) >= FFortniteMainBranchObjectVersion.Type.SkeletalHalfEdgeData)
         {
             const byte MeshDeformerStripFlag = 1;
-            var meshDeformerStripFlags = Ar.Read<FStripDataFlags>();
+            var meshDeformerStripFlags = new FStripDataFlags(Ar);
             if (!meshDeformerStripFlags.IsClassDataStripped(MeshDeformerStripFlag))
             {
                 HalfEdgeBuffer = new FSkeletalMeshHalfEdgeBuffer(Ar);

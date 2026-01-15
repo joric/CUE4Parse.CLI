@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
+using CUE4Parse.UE4.Assets.Exports.Material;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
@@ -34,7 +35,6 @@ public struct FFrozenMemoryImagePtr
             OffsetFromThis = (long)_packed >> 1;
         }
     }
-
 }
 
 public class FMemoryImageArchive : FArchive
@@ -282,5 +282,47 @@ public class FMemoryImageArchive : FArchive
         }
         Position += 12;
         return default;
+    }
+
+    public EMaterialParameterType ReadMaterialParameterType()
+    {
+        var value = Read<byte>();
+        return Game switch
+        {
+            >= EGame.GAME_UE5_7 => (EMaterialParameterType) value,
+            >= EGame.GAME_UE5_5 => value switch
+            {
+                9 => EMaterialParameterType.StaticComponentMask,
+                _ => (EMaterialParameterType) value,
+            },
+            >= EGame.GAME_UE5_2 => value switch
+            {
+                4 => EMaterialParameterType.Font,
+                5 => EMaterialParameterType.RuntimeVirtualTexture,
+                6 => EMaterialParameterType.SparseVolumeTexture,
+                7 => EMaterialParameterType.StaticSwitch,
+                8 => EMaterialParameterType.StaticComponentMask,
+                _ => (EMaterialParameterType) value,
+            },
+            _ => value switch
+            {
+                4 => EMaterialParameterType.Font,
+                5 => EMaterialParameterType.RuntimeVirtualTexture,
+                6 => EMaterialParameterType.StaticSwitch,
+                7 => EMaterialParameterType.StaticComponentMask,
+                _ => (EMaterialParameterType) value,
+            }
+        };
+    }
+
+    public FMaterialUniformPreshaderHeader ReadMaterialUniformPreshaderHeader()
+    {
+        return Game switch
+        {
+            >= EGame.GAME_UE5_8 => new FMaterialUniformPreshaderHeader_5_8(this),
+            >= EGame.GAME_UE5_1 => new FMaterialUniformPreshaderHeader_5_1(this),
+            >= EGame.GAME_UE5_0 => new FMaterialUniformPreshaderHeader_5_0(this),
+            _ => new FMaterialUniformPreshaderHeader(this),
+        };
     }
 }

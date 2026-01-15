@@ -23,7 +23,7 @@ public enum EPakFileVersion
     PakFile_Version_FrozenIndex = 9,
     PakFile_Version_PathHashIndex = 10,
     PakFile_Version_Fnv64BugFix = 11,
-
+    PakFile_Version_Utf8PakDirectory = 12,
 
     PakFile_Version_Last,
     PakFile_Version_Invalid,
@@ -251,7 +251,7 @@ public partial class FPakInfo
             (IndexOffset, IndexSize) = (IndexSize, IndexOffset);
         }
 
-        if (Ar.Game == EGame.GAME_MeetYourMaker && offsetToTry == OffsetsToTry.SizeHotta && Version >= EPakFileVersion.PakFile_Version_Latest)
+        if (Ar.Game == EGame.GAME_MeetYourMaker && offsetToTry == OffsetsToTry.SizeHotta && Version >= EPakFileVersion.PakFile_Version_Fnv64BugFix)
         {
             var mymVersion = Ar.Read<uint>(); // I assume this is a version, only 0 right now.
         }

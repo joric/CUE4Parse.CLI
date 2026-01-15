@@ -46,18 +46,18 @@ namespace CUE4Parse.UE4.Objects.Core.Math
 
         public FRotator(FArchive Ar)
         {
-            if (Ar.Ver >= EUnrealEngineObjectUE5Version.LARGE_WORLD_COORDINATES)
+            if (Ar.Game < EGame.GAME_UE4_0)
             {
-                Pitch = (float) Ar.Read<double>();
-                Yaw = (float) Ar.Read<double>();
-                Roll = (float) Ar.Read<double>();
+                const float scale = 360f / 65536f;
+                Pitch = Ar.Read<int>() * scale;
+                Yaw   = Ar.Read<int>() * scale;
+                Roll  = Ar.Read<int>() * scale;
+                return;
             }
-            else
-            {
-                Pitch = Ar.Read<float>();
-                Yaw = Ar.Read<float>();
-                Roll = Ar.Read<float>();
-            }
+
+            Pitch = Ar.ReadFReal();
+            Yaw = Ar.ReadFReal();
+            Roll = Ar.ReadFReal();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -184,7 +184,7 @@ namespace CUE4Parse.UE4.Objects.Core.Math
                                                                     MathF.Abs(NormalizeAxis(Yaw - r.Yaw)) <= tolerance &&
                                                                     MathF.Abs(NormalizeAxis(Roll - r.Roll)) <= tolerance;
 
-        public void Serialize(FArchiveWriter Ar) 
+        public void Serialize(FArchiveWriter Ar)
         {
             Ar.Write(Pitch);
             Ar.Write(Yaw);

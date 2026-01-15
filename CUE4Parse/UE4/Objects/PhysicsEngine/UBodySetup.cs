@@ -22,9 +22,10 @@ namespace CUE4Parse.UE4.Objects.PhysicsEngine
 
             var bCooked = Ar.ReadBoolean();
             if (!bCooked) return;
+            if (Ar.Game is EGame.GAME_Aion2 && GetOrDefault<bool>("bNeverNeedsCookedCollisionData")) return;
             if (Ar.Ver >= EUnrealEngineObjectUE4Version.STORE_HASCOOKEDDATA_FOR_BODYSETUP)
             {
-                var _ = Ar.ReadBoolean(); // bTemp
+                _ = Ar.ReadBoolean(); // bTemp
             }
 
             CookedFormatData = new FFormatContainer(Ar);

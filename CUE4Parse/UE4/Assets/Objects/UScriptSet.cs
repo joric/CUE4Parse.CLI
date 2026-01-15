@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using CUE4Parse.GameTypes.AoC.Objects;
 using CUE4Parse.GameTypes.DuneAwakening.Assets.Objects;
 using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.Assets.Readers;
@@ -14,10 +15,9 @@ public class UScriptSet
 {
     public readonly List<FPropertyTagType> Properties;
 
-    public UScriptSet()
-    {
-        Properties = [];
-    }
+    public UScriptSet() => Properties = [];
+
+    public UScriptSet(List<FPropertyTagType> properties) => Properties = properties;
 
     public UScriptSet(FAssetArchive Ar, FPropertyTagData? tagData, ReadType readType)
     {
@@ -45,6 +45,7 @@ public class UScriptSet
                 EGame.GAME_ThroneAndLiberty when tagData.Name is "ExcludeMeshes" or "IncludeMeshes" => new FPropertyTagData("SoftObjectPath"),
                 EGame.GAME_MetroAwakening when tagData.Name is "SoundscapePaletteCollection" => new FPropertyTagData("SoftObjectPath"),
                 EGame.GAME_Avowed when tagData.Name.EndsWith("IDs") => new FPropertyTagData("Guid"),
+                EGame.GAME_Farlight84 => new FPropertyTagData("SoftObjectPath"),
                 EGame.GAME_DuneAwakening => DAStructs.ResolveSetPropertyInnerTypeData(tagData),
                 _ => tagData.InnerTypeData
             };
@@ -58,6 +59,7 @@ public class UScriptSet
                 FPropertyTagType.ReadPropertyTagType(Ar, innerType, tagData.InnerTypeData, ReadType.ARRAY);
             }
         }
+        if (Ar.Game is EGame.GAME_AshesOfCreation && Ar is FAoCDBCReader) Ar.Position += 4;
 
         var type = readType == ReadType.RAW ? ReadType.RAW : ReadType.ARRAY;
         var num = Ar.Read<int>();

@@ -3,13 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
-using CUE4Parse.FileProvider.Objects;
 using CUE4Parse.FileProvider.Vfs;
-using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Assets.Exports.Wwise;
 using CUE4Parse.UE4.Assets.Objects.Properties;
-using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Readers;
+using CUE4Parse.UE4.Versions;
 using CUE4Parse.UE4.Wwise.Objects;
 using CUE4Parse.UE4.Wwise.Objects.HIRC;
 using CUE4Parse.Utils;
@@ -26,13 +24,22 @@ public class WwiseExtractedSound
     public override string ToString() => OutputPath + "." + Extension.ToLowerInvariant();
 }
 
-public class WwiseProviderConfiguration(long maxTotalWwiseSize = 2L * 1024 * 1024 * 1024, int maxBankFiles = 500)
+public class WwiseProviderConfiguration(long maxTotalWwiseSize = 2L * 1024 * 1024 * 1024, int maxBankFiles = 1024)
 {
     // Important note: If game splits audio event hierarchies across multiple soundbanks and either of these limits is reached, given game requires custom loading implementation!
     public long MaxTotalWwiseSize { get; } = maxTotalWwiseSize;
     public int MaxBankFiles { get; } = maxBankFiles;
-    // NOTES:
-    // - REMATCH requires increase MaxBankFiles. Total Wwise size is fine.
+
+    public static WwiseProviderConfiguration GetFinalConfiguration(EGame game, WwiseProviderConfiguration? userConfig)
+    {
+        var baseConfig = userConfig ?? new WwiseProviderConfiguration();
+
+        return game switch
+        {
+            EGame.GAME_AceCombat7 => new WwiseProviderConfiguration(long.MaxValue, baseConfig.MaxBankFiles),
+            _ => baseConfig
+        };
+    }
 }
 
 public class WwiseProvider
@@ -57,7 +64,7 @@ public class WwiseProvider
     public WwiseProvider(AbstractVfsFileProvider provider, WwiseProviderConfiguration? configuration = null)
     {
         _provider = provider;
-        _configuration = configuration ?? new WwiseProviderConfiguration();
+        _configuration = WwiseProviderConfiguration.GetFinalConfiguration(_provider.Versions.Game, configuration);
 
         LoadMultiReferenceLibrary();
 
@@ -72,21 +79,27 @@ public class WwiseProvider
     private readonly HashSet<(uint Id, Hierarchy Hierarchy)> _visitedHierarchies = []; // To speed things up
     private readonly HashSet<uint> _visitedWemIds = []; // To prevent duplicates
 
+    // Please don't change this, when extracting directly from .bnk we shouldn't loop through wwise hierarchy
+    // because that doesn't guarantee us to extract the audio from this given soundbank
     public List<WwiseExtractedSound> ExtractBankSounds(WwiseReader wwiseReader)
     {
         CacheSoundBank(wwiseReader);
         var ownerDirectory = wwiseReader.Path.SubstringBeforeLast('.');
 
-        var results = new List<WwiseExtractedSound>();
-        if (wwiseReader.Hierarchies != null)
+        if (wwiseReader.WwiseEncodedMedias == null)
+            return [];
+
+        var results = new List<WwiseExtractedSound>(wwiseReader.WwiseEncodedMedias.Count);
+        foreach (var media in wwiseReader.WwiseEncodedMedias)
         {
-            foreach (var h in wwiseReader.Hierarchies)
+            results.Add(new WwiseExtractedSound
             {
-                if (h.Data is not HierarchyEvent hierarchyEvent)
-                    continue;
-                LoopThroughEventActions(hierarchyEvent, results, ownerDirectory);
-            }
+                OutputPath = Path.Combine(ownerDirectory, media.Key),
+                Extension = "wem",
+                Data = media.Value,
+            });
         }
+
         return results;
     }
 
@@ -96,6 +109,7 @@ public class WwiseProvider
 
         _visitedHierarchies.Clear();
         _visitedWemIds.Clear();
+
         var results = new List<WwiseExtractedSound>();
 
         var wwiseData = audioEvent.EventCookedData;
@@ -136,7 +150,6 @@ public class WwiseProvider
         {
             if (!eventData.HasValue)
                 continue;
-            var debugName = eventData.Value.DebugName.Text;
 
             foreach (var soundBank in eventData.Value.SoundBanks)
             {
@@ -161,13 +174,15 @@ public class WwiseProvider
                 }
             }
         }
+
         return results;
     }
 
     private void ProcessMediaCookedData(FWwiseMediaCookedData media, FWwiseLanguageCookedData languageData, List<WwiseExtractedSound> results)
     {
-        var mediaPathName = ResolveWwisePath(media.MediaPathName.Text,media.PackagedFile,media.MediaPathName.IsNone);
+        DetermineBaseWwiseAudioPath();
 
+        var mediaPathName = ResolveWwisePath(media.MediaPathName.Text, media.PackagedFile, media.MediaPathName.IsNone);
         var mediaRelativePath = Path.Combine(_baseWwiseAudioPath, mediaPathName);
 
         byte[] data = [];
@@ -203,9 +218,12 @@ public class WwiseProvider
 
     private void ProcessSoundBankCookedData(FWwiseSoundBankCookedData soundBank, FWwiseEventCookedData? eventData, List<WwiseExtractedSound> results)
     {
-        if (!soundBank.bContainsMedia) return;
+        if (!soundBank.bContainsMedia)
+            return;
 
-        var soundBankName = ResolveWwisePath(soundBank.SoundBankPathName.Text,soundBank.PackagedFile,soundBank.SoundBankPathName.IsNone);
+        DetermineBaseWwiseAudioPath();
+
+        var soundBankName = ResolveWwisePath(soundBank.SoundBankPathName.Text, soundBank.PackagedFile, soundBank.SoundBankPathName.IsNone);
         var soundBankPath = Path.Combine(_baseWwiseAudioPath, soundBankName);
         TryLoadAndCacheSoundBank(soundBankPath, soundBankName, (uint) soundBank.SoundBankId, out _);
 
@@ -327,6 +345,23 @@ public class WwiseProvider
                         foreach (var childId in layerContainer.ChildIds)
                             TraverseAndSave(childId);
                         break;
+                    case HierarchyActorMixer mixerContainer:
+                        foreach (var childId in mixerContainer.ChildIds)
+                            TraverseAndSave(childId);
+                        break;
+                    case HierarchyEvent eventContainer:
+                        foreach (var actionId in eventContainer.EventActionIds)
+                        {
+                            if (!_wwiseHierarchyTables.TryGetValue(actionId, out var actionHierarchy) ||
+                                actionHierarchy.Data is not HierarchyEventAction eventAction)
+                                continue;
+
+                            TraverseAndSave(eventAction.ReferencedId);
+                        }
+                        break;
+                    default:
+                        Log.Warning("Unhandled hierarchy type {0}, while traversing through EventActions", hierarchy.Type);
+                        break;
                 }
             }
         }
@@ -408,6 +443,8 @@ public class WwiseProvider
 
         var soundBankFiles = _provider.Files.Values
             .Where(file => _validSoundBankExtensions.Contains(file.Extension))
+            // We need to prioritize .pck over .bnk (if there's such pair, .bnk might contain only partial audio buffer, full one is stored in .pck)
+            .OrderByDescending(file => file.Extension.Equals("pck", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (soundBankFiles.Count == 0)
@@ -452,6 +489,7 @@ public class WwiseProvider
             totalLoadedBanks += 1;
         }
 
+        Log.Debug($"Preloaded total of {totalLoadedBanks} soundbanks");
         _completedWwiseFullBnkInit = totalLoadedBanks > 0;
     }
 
@@ -466,7 +504,9 @@ public class WwiseProvider
         using var archive = new FByteArchive(soundBankName, data);
         var wwiseReader = new WwiseReader(archive);
         CacheSoundBank(wwiseReader);
-        _wwiseLoadedSoundBanks.Add(wwiseReader.Header.SoundBankId);
+
+        if (wwiseReader.Header.SoundBankId is not 0)
+            _wwiseLoadedSoundBanks.Add(wwiseReader.Header.SoundBankId);
 
         fileSize = data.LongLength;
         return true;
@@ -537,6 +577,7 @@ public class WwiseProvider
                 {
                     if (pf.BulkData != null && !_multiReferenceLibraryCache.ContainsKey(pf.Hash))
                     {
+                        CacheSoundBank(pf.BulkData);
                         _multiReferenceLibraryCache[pf.Hash] = pf.BulkData;
                     }
                 }
@@ -553,6 +594,11 @@ public class WwiseProvider
 
     private static string ResolveWwisePath(string path, FWwisePackagedFile? packagedFile, bool isPathNone)
     {
+        if (isPathNone && (packagedFile == null || packagedFile.PathName.IsNone))
+        {
+            return string.Empty;
+        }
+
         if (packagedFile != null && isPathNone && !packagedFile.PathName.IsNone)
         {
             path = packagedFile.PathName.ToString();

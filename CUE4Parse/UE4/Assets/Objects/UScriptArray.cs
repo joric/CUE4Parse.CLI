@@ -24,6 +24,13 @@ public class UScriptArray
         Properties = [];
     }
 
+    public UScriptArray(List<FPropertyTagType> properties, string innerType, FPropertyTagData? innerTagData = null)
+    {
+        InnerType = innerType;
+        InnerTagData = innerTagData;
+        Properties = properties;
+    }
+
     public UScriptArray(FAssetArchive Ar, FPropertyTagData? tagData, ReadType type, int size)
     {
         InnerType = tagData?.InnerType ?? throw new ParserException(Ar, "UScriptArray needs inner type");
@@ -35,7 +42,7 @@ public class UScriptArray
                 $"ArrayProperty element count {elementCount} is larger than the remaining archive size {Ar.Length - Ar.Position}");
         }
 
-        if (Ar.HasUnversionedProperties)
+        if (Ar.HasUnversionedProperties || Ar.Game < EGame.GAME_UE4_0)
         {
             InnerTagData = tagData.InnerTypeData;
         }
@@ -74,7 +81,7 @@ public class UScriptArray
                 if (property != null)
                     Properties.Add(property);
                 else
-                    Log.Debug($"Failed to read array property of type {InnerType} at ${Ar.Position}, index {i}");
+                    Log.Debug($"Failed to read array property of type {InnerType} at {Ar.Position}, index {i}");
             }
             return;
         }
@@ -85,7 +92,7 @@ public class UScriptArray
             if (property != null)
                 Properties.Add(property);
             else
-                Log.Debug($"Failed to read array property of type {InnerType} at ${Ar.Position}, index {i}");
+                Log.Debug($"Failed to read array property of type {InnerType} at {Ar.Position}, index {i}");
         }
     }
 
