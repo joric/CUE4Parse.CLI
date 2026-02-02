@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using CUE4Parse.GameTypes.CodeVein2.Encryption;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.Core.Misc;
@@ -48,7 +49,12 @@ public class FTextLocalizationResource
             {
                 var currentFileOffset = Ar.Position;
                 Ar.Position = localizedStringArrayOffset;
-                localizedStringArray = Ar.ReadArray(() => new FTextLocalizationResourceString(Ar, versionNumber));
+                localizedStringArray = Ar.Game switch
+                {
+                    EGame.GAME_CodeVein2 when Ar.Name.Contains("CodeVein2/Content/Localization/") => 
+                        Ar.ReadArray(() => new FTextLocalizationResourceString(CodeVein2StringEncryption.CodeVein2EncryptedFString(Ar, ECV2DecryptionMode.Locres), Ar.Read<int>())),
+                    _ => Ar.ReadArray(() => new FTextLocalizationResourceString(Ar, versionNumber))
+                };
                 Ar.Position = currentFileOffset;
             }
         }

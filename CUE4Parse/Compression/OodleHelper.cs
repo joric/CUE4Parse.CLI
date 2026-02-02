@@ -34,7 +34,7 @@ public static class OodleHelper
     {
         if (Instance is not null) return;
 
-        if (path is null && CUE4ParseNatives.IsFeatureAvailable("Oodle"))
+        if (path is null && CUE4ParseNatives.IsFeatureAvailable("Oodle\0"u8))
         {
             Instance = new Oodle(NativeLibrary.Load(CUE4ParseNatives.LibraryName));
         }
@@ -113,8 +113,8 @@ public static class OodleHelper
 
     public static async Task<bool> DownloadOodleDllFromOodleUEAsync(HttpClient client, string path)
     {
-        const string url = "https://github.com/WorkingRobot/OodleUE/releases/download/2025-07-31-1001/clang-cl.zip"; // 2.9.14
-        const string entryName = "bin/Release/oodle-data-shared.dll";
+        const string url = "https://github.com/WorkingRobot/OodleUE/releases/download/2026-01-25-1223/clang-cl-x64-release.zip"; // 2.9.15
+        const string entryName = "bin/oodle-data-shared.dll";
 
         try
         {

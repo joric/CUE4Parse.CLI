@@ -46,6 +46,7 @@ public enum EGame : uint
         GAME_FridayThe13th = GAME_UE4_18 + 4,
         GAME_GameForPeace = GAME_UE4_18 + 5,
         GAME_DragonQuestXI = GAME_UE4_18 + 6,
+        GAME_CodeVein = GAME_UE4_18 + 7,
     GAME_UE4_19 = GameUtils.GameUe4Base + (19 << 16),
         GAME_Paragon = GAME_UE4_19 + 1,
         GAME_Ashen = GAME_UE4_19 + 2,
@@ -60,6 +61,7 @@ public enum EGame : uint
     GAME_UE4_24 = GameUtils.GameUe4Base + (24 << 16),
         GAME_TonyHawkProSkater12 = GAME_UE4_24 + 1,
         GAME_BigRumbleBoxingCreedChampions = GAME_UE4_24 + 2,
+        GAME_AssaultFireFuture = GAME_UE4_24 + 3,
     GAME_UE4_25 = GameUtils.GameUe4Base + (25 << 16),
         GAME_UE4_25_Plus = GAME_UE4_25 + 1,
         GAME_RogueCompany = GAME_UE4_25 + 2,
@@ -93,8 +95,13 @@ public enum EGame : uint
         GAME_EtheriaRestart = GAME_UE4_26 + 17,
         GAME_EvilWest = GAME_UE4_26 + 18,
         GAME_ArenaBreakoutInfinite = GAME_UE4_26 + 19,
-        GAME_OctopathTravelerCoTC = GAME_UE4_26 + 20,
         GAME_Psychonauts2 = GAME_UE4_26 + 20,
+        GAME_OctopathTravelerCoTC = GAME_UE4_26 + 21,
+        GAME_DarkPicturesAnthologyHouseOfAshes = GAME_UE4_26 + 22,
+        GAME_DarkPicturesAnthologyManofMedan = GAME_UE4_26 + 23,
+        GAME_DarkPicturesAnthologyTheDevilinMe = GAME_UE4_26 + 24,        
+        GAME_DarkPicturesAnthologyLittleHope = GAME_UE4_26 + 25,        
+        GAME_TheQuarry = GAME_UE4_26 + 26,    
     GAME_UE4_27 = GameUtils.GameUe4Base + (27 << 16),
         GAME_Splitgate = GAME_UE4_27 + 1,
         GAME_HYENAS = GAME_UE4_27 + 2,
@@ -131,12 +138,13 @@ public enum EGame : uint
 
     GAME_UE4_LATEST = GAME_UE4_28,
 
-    // TODO Figure out the enum name for UE5 Early Access
-    // The commit https://github.com/EpicGames/UnrealEngine/commit/cf116088ae6b65c1701eee99288e43c7310d6bb1#diff-6178e9d97c98e321fc3f53770109ea7f6a8ea7a86cac542717a81922f2f93613R723
-    // changed the IoStore and its packages format which breaks backward compatibility with 5.0.0-16433597+++UE5+Release-5.0-EarlyAccess
     GAME_UE5_0 = GameUtils.GameUe5Base + (0 << 16),
         GAME_MeetYourMaker = GAME_UE5_0 + 1,
         GAME_BlackMythWukong = GAME_UE5_0 + 2,
+        // Added here, so it doesn't break existing configurations.
+        // The commit https://github.com/EpicGames/UnrealEngine/commit/cf116088ae6b65c1701eee99288e43c7310d6bb1#diff-6178e9d97c98e321fc3f53770109ea7f6a8ea7a86cac542717a81922f2f93613R723
+        // changed the IoStore and its packages format which breaks backward compatibility with 5.0.0-16433597+++UE5+Release-5.0-EarlyAccess
+        GAME_UE5_EA = GAME_UE5_0 + 3,
     GAME_UE5_1 = GameUtils.GameUe5Base + (1 << 16),
         GAME_3on3FreeStyleRebound = GAME_UE5_1 + 1,
         GAME_Stalker2 = GAME_UE5_1 + 2,
@@ -181,6 +189,7 @@ public enum EGame : uint
         GAME_Placeholder2 = GAME_UE5_4 + 16,
         GAME_OuterWorlds2 = GAME_UE5_4 + 17,
         GAME_OctopathTraveler0 = GAME_UE5_4 + 18,
+        GAME_CodeVein2 = GAME_UE5_4 + 19,
     GAME_UE5_5 = GameUtils.GameUe5Base + (5 << 16),
         GAME_Brickadia = GAME_UE5_5 + 1,
         GAME_Splitgate2 = GAME_UE5_5 + 2,
@@ -194,6 +203,7 @@ public enum EGame : uint
         GAME_Borderlands4 = GAME_UE5_5 + 10,
         GAME_Rennsport = GAME_UE5_5 + 11,
         GAME_GrayZoneWarfare = GAME_UE5_5 + 12,
+        GAME_IntotheRadius2 = GAME_UE5_5 + 13,
     GAME_UE5_6 = GameUtils.GameUe5Base + (6 << 16),
         GAME_Grounded2 = GAME_UE5_6 + 1,
         GAME_AshesOfCreation = GAME_UE5_6 + 2,
@@ -218,14 +228,13 @@ public static class GameUtils
     public static FPackageFileVersion GetVersion(this EGame game)
     {
         // Custom UE Games
-        // If a game needs a even more specific custom version than the major release version you can add it below
-        // if (game == EGame.GAME_VALORANT)
-        //     return UE4Version.VER_UE4_24;
+        // If a game needs an even more specific custom version than the major release version you can add it below
 
         if (game >= EGame.GAME_UE5_0)
         {
             return game switch
             {
+                    EGame.GAME_UE5_EA => new FPackageFileVersion(522, 1002),
                 < EGame.GAME_UE5_1 => new FPackageFileVersion(522, 1004),
                 < EGame.GAME_UE5_2 => new FPackageFileVersion(522, 1008),
                     EGame.GAME_TheFirstDescendant => new FPackageFileVersion(522, 1002),

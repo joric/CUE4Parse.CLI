@@ -22,6 +22,7 @@ using CUE4Parse.GameTypes.MindsEye.Encryption.Aes;
 using CUE4Parse.GameTypes.MJS.Encryption.Aes;
 using CUE4Parse.GameTypes.NetEase.MAR.Encryption.Aes;
 using CUE4Parse.GameTypes.NFS.Mobile.Encryption.Aes;
+using CUE4Parse.GameTypes.NMZ.Encryption.Aes;
 using CUE4Parse.GameTypes.OPA.Encryption.Aes;
 using CUE4Parse.GameTypes.PAXDEI.Encryption.Aes;
 using CUE4Parse.GameTypes.PMA.Encryption.Aes;
@@ -99,6 +100,7 @@ namespace CUE4Parse.FileProvider.Vfs
                 EGame.GAME_ArenaBreakoutInfinite => ABIDecryption.ABIDecrypt,
                 EGame.GAME_BloodBowl3 => BloodBowl3Aes.BloodBowl3Decrypt,
                 EGame.GAME_StyxBladesofGreed => StyxAes.StyxDecrypt,
+                EGame.GAME_AssaultFireFuture => AssaultFireFutureAes.AssaultFireFutureDecrypt,
                 _ => null
             };
         }
@@ -144,6 +146,12 @@ namespace CUE4Parse.FileProvider.Vfs
                         openContainerStreamFunc ??= it => new FStreamArchive(it, stream!, Versions);
                         reader = new IoStoreReader(archive, openContainerStreamFunc);
                         break;
+                    case "UONDEMANDTOC":
+                        if (OnDemandOptions is null)
+                            return;
+                        var chunkToc = new IoChunkToc(archive);
+                        RegisterVfs(chunkToc, OnDemandOptions);
+                        return;
                     default:
                         return;
                 }
@@ -172,6 +180,12 @@ namespace CUE4Parse.FileProvider.Vfs
                         openContainerStreamFunc ??= _ => utocArchive!;
                         reader = new IoStoreReader(pakOrUtocArchive, openContainerStreamFunc);
                         break;
+                    case "UONDEMANDTOC":
+                        if (OnDemandOptions is null)
+                            return;
+                        var chunkToc = new IoChunkToc(pakOrUtocArchive);
+                        RegisterVfs(chunkToc, OnDemandOptions);
+                        return;
                     default:
                         return;
                 }
@@ -198,6 +212,12 @@ namespace CUE4Parse.FileProvider.Vfs
                         openContainerStreamFunc ??= it => new FRandomAccessStreamArchive(it, utocStream!, Versions);
                         reader = new IoStoreReader(pakOrUtocArchive, openContainerStreamFunc);
                         break;
+                    case "UONDEMANDTOC":
+                        if (OnDemandOptions is null)
+                            return;
+                        var chunkToc = new IoChunkToc(pakOrUtocArchive);
+                        RegisterVfs(chunkToc, OnDemandOptions);
+                        return;
                     default:
                         return;
                 }
@@ -208,14 +228,22 @@ namespace CUE4Parse.FileProvider.Vfs
                 Log.Warning(e.ToString());
             }
         }
-        public async Task RegisterVfs(IoChunkToc chunkToc, IoStoreOnDemandOptions options)
+
+        public void RegisterVfs(IoChunkToc chunkToc, IoStoreOnDemandOptions options) => RegisterVfsAsync(chunkToc).GetAwaiter().GetResult();
+        public async Task RegisterVfsAsync(IoChunkToc chunkToc)
         {
-            var downloader = new IoStoreOnDemandDownloader(options);
+            if (OnDemandOptions is null)
+                return;
+
+            var downloader = new IoStoreOnDemandDownloader(OnDemandOptions);
             foreach (var container in chunkToc.Containers)
             {
                 PostLoadReader(new IoStoreOnDemandReader(
-                    new FStreamArchive($"{container.ContainerName}.utoc", await downloader.Download($"{container.UTocHash.ToString().ToLower()}.utoc"), Versions),
-                    container.Entries, downloader));
+                    new FStreamArchive($"{container.ContainerName}.utoc",
+                    await downloader.Download($"{chunkToc.Header.ChunksDirectory}/{container.UTocHash.ToString().ToLower()}.utoc").ConfigureAwait(false), Versions),
+                    chunkToc,
+                    container,
+                    downloader));
             }
         }
 

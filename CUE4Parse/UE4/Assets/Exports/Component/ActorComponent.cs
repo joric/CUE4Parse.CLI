@@ -1,4 +1,3 @@
-using CUE4Parse.UE4.Assets.Exports.Component.Atmosphere;
 using CUE4Parse.UE4.Assets.Exports.Component.Landscape;
 using CUE4Parse.UE4.Assets.Exports.Component.Lights;
 using CUE4Parse.UE4.Assets.Exports.Component.SkeletalMesh;
@@ -6,6 +5,7 @@ using CUE4Parse.UE4.Assets.Exports.Component.StaticMesh;
 using CUE4Parse.UE4.Assets.Exports.Sound;
 using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Assets.Readers;
+using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Objects.PhysicsEngine;
@@ -48,9 +48,23 @@ public class UActorSequenceComponent : UActorComponent;
 public class UActorTextureStreamingBuildDataComponent : UActorComponent;
 public class UApplicationLifecycleComponent : UActorComponent;
 public class UArchVisCharMovementComponent : UCharacterMovementComponent;
-public class UArrowComponent : UPrimitiveComponent;
+
+public class UArrowComponent : UPrimitiveComponent
+{
+    public FColor ArrowColor;
+    public float ArrowSize;
+    public float ArrowLength;
+
+    public override void Deserialize(FAssetArchive Ar, long validPos)
+    {
+        base.Deserialize(Ar, validPos);
+
+        ArrowColor = GetOrDefault(nameof(ArrowColor), new FColor(255, 0, 0));
+        ArrowSize = GetOrDefault(nameof(ArrowSize), 1.0f);
+        ArrowLength = GetOrDefault(nameof(ArrowLength), 80.0f);
+    }
+}
 public class UAsyncPhysicsInputComponent : UActorComponent;
-public class UAtmosphericFogComponent : USkyAtmosphereComponent;
 public class UAudioCaptureComponent : USynthComponent;
 
 public class UAudioComponent : USceneComponent
@@ -312,7 +326,6 @@ public class URadialForceComponent : USceneComponent;
 public class URadialIntMask : UFieldNodeInt;
 public class URadialVector : UFieldNodeVector;
 public class URandomVector : UFieldNodeVector;
-public class UReflectionCaptureComponent : USceneComponent;
 public class UReturnResultsTerminal : UFieldNodeBase;
 public class URotatingMovementComponent : UMovementComponent;
 public class URuntimeVirtualTextureComponent : USceneComponent;
