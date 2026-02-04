@@ -194,6 +194,10 @@ internal static class Program
         OodleHelper.DownloadOodleDll(oodlePath);
         OodleHelper.Initialize(oodlePath);
 
+        var zlibPath = Path.Combine(Path.GetTempPath(), ZlibHelper.DLL_NAME);
+        ZlibHelper.DownloadDll(zlibPath);
+        ZlibHelper.Initialize(zlibPath);
+
         // Initialize provider
         provider.Initialize();
 
