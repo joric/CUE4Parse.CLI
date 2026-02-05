@@ -318,10 +318,14 @@ internal static class Program
         var cts = new CancellationTokenSource();
 
         //foreach (var package in packages)
+#if DEBUG
+        Parallel.ForEach(packages, new ParallelOptions { CancellationToken = cts.Token, MaxDegreeOfParallelism = 1 }, package =>
+#else
         Parallel.ForEach(packages, new ParallelOptions { CancellationToken = cts.Token }, package =>
-        {
-            // list assets
-            if (list)
+#endif
+		{
+			// list assets
+			if (list)
             {
                 if (!string.IsNullOrEmpty(format) && format=="csv")
                 {
@@ -342,11 +346,27 @@ internal static class Program
 
             // Select target format
             var targetFormat = format;
-            if (targetFormat == "auto")
+            if (targetFormat != "raw")
             {
                 switch(ext)
                 {
                     case ".umap": targetFormat = "json"; break;
+					case ".locmeta":
+                        if (TryLoadLocmeta(package, out var locmeta))
+                        {
+                            SaveJson(folder, package.Name, locmeta, ref exportCount);
+                            counter++;
+                            return;
+                        }
+                        break;
+                    case ".locres":
+                        if (TryLoadLocres(package, out var locres))
+                        {
+							SaveJson(folder, package.Name, locres, ref exportCount);
+							counter++;
+							return;
+						}
+                        break;
                 }
             }
 
@@ -382,7 +402,7 @@ internal static class Program
             }
 
             if (targetFormat == "json") {
-                SaveJson(folder, package.Name, pkg, ref exportCount);
+                SaveJson(folder, package.Name, pkg.GetExports(), ref exportCount);
                 counter++;
                 return;
             }
@@ -449,15 +469,15 @@ internal static class Program
                         {
                             WriteToLog(folder, Path.GetFileName(filePath), ref exportCount);
                         }
-                        break;
-                        parsed = true;
+						parsed = true;
+						break;
                     }
                 }
             }
 
             if (!parsed)
             {
-                SaveJson(folder, package.Name, pkg, ref exportCount);
+                SaveJson(folder, package.Name, pkg.GetExports(), ref exportCount);
             }
 
             counter++;
@@ -483,7 +503,44 @@ internal static class Program
         return path;
     }
 
-    private static void SaveRaw(string folder, CUE4Parse.FileProvider.Objects.GameFile package, AbstractVfsFileProvider provider, ref int exportCount)
+
+	private static bool TryLoadLocmeta(CUE4Parse.FileProvider.Objects.GameFile package, out FTextLocalizationMetaDataResource? locres)
+	{
+		if (!package.TryCreateReader(out var reader))
+		{
+			locres = null;
+			return false;
+		}
+		try
+		{
+			locres = new FTextLocalizationMetaDataResource(reader);
+		}
+		catch
+		{
+			locres = null;
+		}
+		return (locres != null);
+	}
+	private static bool TryLoadLocres(CUE4Parse.FileProvider.Objects.GameFile package, out FTextLocalizationResource? locres)
+	{
+		if (!package.TryCreateReader(out var reader))
+		{
+			locres = null;
+			return false;
+		}
+		try
+		{
+			locres = new FTextLocalizationResource(reader);
+		}
+		catch
+		{
+			locres = null;
+		}
+		return (locres != null);
+	}
+
+
+	private static void SaveRaw(string folder, CUE4Parse.FileProvider.Objects.GameFile package, AbstractVfsFileProvider provider, ref int exportCount)
     {
         var name = package.Name;
         var outPath = Path.Combine(_exportDirectory, folder, name);
@@ -495,7 +552,7 @@ internal static class Program
         WriteToFile(folder, name, bytes, $"{name}", ref exportCount);
     }
 
-    private static void SaveJson(string folder, string name, IPackage pkg, ref int exportCount)
+    private static void SaveJson(string folder, string name, object? exports, ref int exportCount)
     {
         string fileName = Path.ChangeExtension(name, ".json");
         var outPath = Path.Combine(_exportDirectory, folder, fileName);
@@ -503,7 +560,6 @@ internal static class Program
         if (!CheckFile(outPath)) return;
         Directory.CreateDirectory(Path.Combine(_exportDirectory, folder));
 
-        IEnumerable<UObject> exports = pkg.GetExports();
         JsonSerializer serializer = new();
         serializer.Formatting = Formatting.Indented;
         using StreamWriter stream = new(outPath, false, Encoding.UTF8);
