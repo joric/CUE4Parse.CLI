@@ -36,12 +36,14 @@ jobs:
         run: |
           dotnet publish -c Release
 
-      - name: Zip exe
+      - name: Zip exe as cue4parse.exe
         shell: bash
         run: |
-          ZIP_NAME="CUE4Parse.CLI-${VERSION}-Win64-bin.zip"
+          ZIP_NAME="${GITHUB_WORKSPACE}/CUE4Parse.CLI-${VERSION}-Win64-bin.zip"
           cd "CUE4Parse.CLI/bin/Release/net8.0/win-x64/publish"
-          7z a "${GITHUB_WORKSPACE}/${ZIP_NAME}" "CUE4Parse.CLI.exe"
+          cp CUE4Parse.CLI.exe cue4parse.exe      # make temp copy with new name
+          7z a "$ZIP_NAME" "cue4parse.exe"
+          rm cue4parse.exe                         # cleanup
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
