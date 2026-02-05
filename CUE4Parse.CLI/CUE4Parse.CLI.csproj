@@ -19,12 +19,13 @@
         <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
         <IlcOptimizationPreference>Size</IlcOptimizationPreference>
         <InvariantGlobalization>true</InvariantGlobalization>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Configuration)' == 'Release'">
         <DebugType>none</DebugType>
         <DebugSymbols>false</DebugSymbols>
+      </PropertyGroup>
 
-    </PropertyGroup>
-
-    <ItemGroup>
+  <ItemGroup>
         <TrimmerRootAssembly Include="CUE4Parse" />
         <TrimmerRootAssembly Include="Newtonsoft.Json" />
     </ItemGroup>
