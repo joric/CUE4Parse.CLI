@@ -36,24 +36,21 @@ jobs:
         run: |
           dotnet publish -c Release
 
-      # Zip the exe
       - name: Zip exe
         shell: bash
         run: |
           ZIP_NAME="CUE4Parse.CLI-${VERSION}-Win64-bin.zip"
-          cd CUE4Parse.CLI/bin/Release/net8.0/win-x64/publish
-          7z a "$GITHUB_WORKSPACE/$ZIP_NAME" CUE4Parse.CLI.exe
+          cd "CUE4Parse.CLI/bin/Release/net8.0/win-x64/publish"
+          7z a "${GITHUB_WORKSPACE}/${ZIP_NAME}" "CUE4Parse.CLI.exe"
 
-      # Upload artifact to GitHub Actions
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin
-          path: $GITHUB_WORKSPACE/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
+          path: CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
 
       # Create GitHub Release and attach zip
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: $GITHUB_WORKSPACE/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
-
+          files: CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
