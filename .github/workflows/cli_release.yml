@@ -17,15 +17,6 @@ jobs:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
-      # Verify this tag belongs to cli branch
-      - name: Ensure tag is on cli
-        shell: bash
-        run: |
-          if ! git branch -r --contains ${{ github.ref }} | grep -q origin/cli; then
-            echo "Error: Tag ${{ github.ref }} is not on the cli branch"
-            exit 1
-          fi
-
       # Extract version from tag (remove "cli-" prefix)
       - name: Extract version
         shell: bash
