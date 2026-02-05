@@ -1,0 +1,60 @@
+name: Build CUE4Parse.CLI (Win64)
+
+on:
+  push:
+    tags:
+      - 'cli-*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # checkout the TAG from the cli branch
+      - name: Checkout cli at tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      # verify this tag belongs to cli branch
+      - name: Ensure tag is on cli
+        shell: bash
+        run: |
+          if ! git branch -r --contains ${{ github.ref }} | grep -q origin/cli; then
+            echo "Error: Tag ${{ github.ref }} is not on the cli branch"
+            exit 1
+          fi
+
+      - name: Extract version
+        shell: bash
+        run: |
+          echo "VERSION=${{ github.ref_name#cli- }}" >> $GITHUB_ENV
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish CLI
+        working-directory: CUE4Parse.CLI
+        run: |
+          dotnet publish -c Release
+
+      - name: Zip exe
+        shell: bash
+        run: |
+          ZIP_NAME="CUE4Parse.CLI-${VERSION}-Win64-bin.zip"
+          cd CUE4Parse.CLI/bin/Release/net8.0/win-x64/publish
+          7z a "../../../../../../${ZIP_NAME}" CUE4Parse.CLI.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin
+          path: ${{ github.workspace }}/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ github.workspace }}/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
