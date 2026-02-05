@@ -10,14 +10,14 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # checkout the TAG from the cli branch
+      # Checkout the tag commit from the cli branch
       - name: Checkout cli at tag
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
-      # verify this tag belongs to cli branch
+      # Verify this tag belongs to cli branch
       - name: Ensure tag is on cli
         shell: bash
         run: |
@@ -26,35 +26,43 @@ jobs:
             exit 1
           fi
 
+      # Extract version from tag (remove "cli-" prefix)
       - name: Extract version
         shell: bash
         run: |
-          echo "VERSION=${{ github.ref_name | replace('cli-', '') }}" >> $GITHUB_ENV
+          VERSION="${GITHUB_REF_NAME#cli-}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
+      # Setup .NET 8
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
 
+      # Publish CLI exe for Windows x64
       - name: Publish CLI
         working-directory: CUE4Parse.CLI
         run: |
           dotnet publish -c Release
 
+      # Zip the exe
       - name: Zip exe
         shell: bash
         run: |
           ZIP_NAME="CUE4Parse.CLI-${VERSION}-Win64-bin.zip"
           cd CUE4Parse.CLI/bin/Release/net8.0/win-x64/publish
-          7z a "../../../../../../${ZIP_NAME}" CUE4Parse.CLI.exe
+          7z a "$GITHUB_WORKSPACE/$ZIP_NAME" CUE4Parse.CLI.exe
 
+      # Upload artifact to GitHub Actions
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin
-          path: ${{ github.workspace }}/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
+          path: $GITHUB_WORKSPACE/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
 
+      # Create GitHub Release and attach zip
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ github.workspace }}/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
+          files: $GITHUB_WORKSPACE/CUE4Parse.CLI-${{ env.VERSION }}-Win64-bin.zip
+
