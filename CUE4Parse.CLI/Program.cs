@@ -169,6 +169,12 @@ internal static class Program
             throw new ArgumentException($"Invalid game version: {game}");
         }
 
+        if (!string.IsNullOrEmpty(mappings) && !File.Exists(mappings))
+        {
+			Console.Error.WriteLine($"Mappings not found: {mappings}");
+			return;
+        }
+
         // Create Version
         var version = new VersionContainer(gameVersion, ETexturePlatform.DesktopMobile);
 
