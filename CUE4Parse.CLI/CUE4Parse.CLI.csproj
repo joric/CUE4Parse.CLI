@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Version>0.1.4</Version>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+
+        <PublishTrimmed>true</PublishTrimmed>
+        <TrimMode>link</TrimMode>
+        <TrimmerDefaultAction>link</TrimmerDefaultAction>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+        <PublishSingleFile>true</PublishSingleFile>
+        <SelfContained>true</SelfContained>
+
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <IncludeAllContentForSelfExtract>false</IncludeAllContentForSelfExtract>
+
+        <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+        <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+        <InvariantGlobalization>true</InvariantGlobalization>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <DebugType>none</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+      </PropertyGroup>
+
+  <ItemGroup>
+        <TrimmerRootAssembly Include="CUE4Parse" />
+        <TrimmerRootAssembly Include="Newtonsoft.Json" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\CUE4Parse-Conversion\CUE4Parse-Conversion.csproj" />
+        <ProjectReference Include="..\CUE4Parse\CUE4Parse.csproj" />
+    </ItemGroup>
+
+</Project>

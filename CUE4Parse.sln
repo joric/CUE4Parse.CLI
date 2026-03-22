@@ -11,6 +11,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CUE4Parse.Example", "CUE4Pa
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CUE4Parse.Tests", "CUE4Parse.Tests\CUE4Parse.Tests.csproj", "{15CA6962-9B05-4A72-8946-6EDB4E736C65}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CUE4Parse.CLI", "CUE4Parse.CLI\CUE4Parse.CLI.csproj", "{C12CB745-B62E-E706-35B0-F21828E11BB2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{15CA6962-9B05-4A72-8946-6EDB4E736C65}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{15CA6962-9B05-4A72-8946-6EDB4E736C65}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{15CA6962-9B05-4A72-8946-6EDB4E736C65}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C12CB745-B62E-E706-35B0-F21828E11BB2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C12CB745-B62E-E706-35B0-F21828E11BB2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C12CB745-B62E-E706-35B0-F21828E11BB2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C12CB745-B62E-E706-35B0-F21828E11BB2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
