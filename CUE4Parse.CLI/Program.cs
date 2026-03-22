@@ -169,6 +169,12 @@ internal static class Program
             throw new ArgumentException($"Invalid game version: {game}");
         }
 
+        if (!string.IsNullOrEmpty(mappings) && !File.Exists(mappings))
+        {
+            Console.Error.WriteLine($"Mappings not found: {mappings}");
+            return;
+        }
+
         // Create Version
         var version = new VersionContainer(gameVersion, ETexturePlatform.DesktopMobile);
 
@@ -190,8 +196,8 @@ internal static class Program
         }
 
         // Init oodle
-        var oodlePath = Path.Combine(Path.GetTempPath(), OodleHelper.OODLE_DLL_NAME);
-        OodleHelper.DownloadOodleDll(oodlePath);
+        var oodlePath = Path.Combine(Path.GetTempPath(), OodleHelper.OodleFileName);
+        OodleHelper.DownloadOodleDll(ref oodlePath);
         OodleHelper.Initialize(oodlePath);
 
         var zlibPath = Path.Combine(Path.GetTempPath(), ZlibHelper.DLL_NAME);
@@ -323,9 +329,9 @@ internal static class Program
 #else
         Parallel.ForEach(packages, new ParallelOptions { CancellationToken = cts.Token }, package =>
 #endif
-		{
-			// list assets
-			if (list)
+        {
+            // list assets
+            if (list)
             {
                 if (!string.IsNullOrEmpty(format) && format=="csv")
                 {
@@ -351,7 +357,7 @@ internal static class Program
                 switch(ext)
                 {
                     case ".umap": targetFormat = "json"; break;
-					case ".locmeta":
+                    case ".locmeta":
                         if (TryLoadLocmeta(package, out var locmeta))
                         {
                             SaveJson(folder, package.Name, locmeta, ref exportCount);
@@ -362,10 +368,10 @@ internal static class Program
                     case ".locres":
                         if (TryLoadLocres(package, out var locres))
                         {
-							SaveJson(folder, package.Name, locres, ref exportCount);
-							counter++;
-							return;
-						}
+                            SaveJson(folder, package.Name, locres, ref exportCount);
+                            counter++;
+                            return;
+                        }
                         break;
                 }
             }
@@ -421,7 +427,8 @@ internal static class Program
                 var pointer = new FPackageIndex(pkg, i + 1).ResolvedObject;
                 if (pointer?.Object is null) continue;
 
-                var dummy = ((AbstractUePackage) pkg).ConstructObject(pointer.Class?.Object?.Value as UStruct, pkg);
+                //var dummy = ((AbstractUePackage) pkg).ConstructObject(pointer.Class?.Object?.Value as UStruct, pkg);
+                var dummy = ((AbstractUePackage) pkg).ConstructObject(pointer.Class, pkg); // new method
 
                 //Console.WriteLine($"{dummy?.GetType().Name} - {package.Name}");
 
@@ -469,8 +476,8 @@ internal static class Program
                         {
                             WriteToLog(folder, Path.GetFileName(filePath), ref exportCount);
                         }
-						parsed = true;
-						break;
+                        parsed = true;
+                        break;
                     }
                 }
             }
@@ -504,43 +511,43 @@ internal static class Program
     }
 
 
-	private static bool TryLoadLocmeta(CUE4Parse.FileProvider.Objects.GameFile package, out FTextLocalizationMetaDataResource? locres)
-	{
-		if (!package.TryCreateReader(out var reader))
-		{
-			locres = null;
-			return false;
-		}
-		try
-		{
-			locres = new FTextLocalizationMetaDataResource(reader);
-		}
-		catch
-		{
-			locres = null;
-		}
-		return (locres != null);
-	}
-	private static bool TryLoadLocres(CUE4Parse.FileProvider.Objects.GameFile package, out FTextLocalizationResource? locres)
-	{
-		if (!package.TryCreateReader(out var reader))
-		{
-			locres = null;
-			return false;
-		}
-		try
-		{
-			locres = new FTextLocalizationResource(reader);
-		}
-		catch
-		{
-			locres = null;
-		}
-		return (locres != null);
-	}
+    private static bool TryLoadLocmeta(CUE4Parse.FileProvider.Objects.GameFile package, out FTextLocalizationMetaDataResource? locres)
+    {
+        if (!package.TryCreateReader(out var reader))
+        {
+            locres = null;
+            return false;
+        }
+        try
+        {
+            locres = new FTextLocalizationMetaDataResource(reader);
+        }
+        catch
+        {
+            locres = null;
+        }
+        return (locres != null);
+    }
+    private static bool TryLoadLocres(CUE4Parse.FileProvider.Objects.GameFile package, out FTextLocalizationResource? locres)
+    {
+        if (!package.TryCreateReader(out var reader))
+        {
+            locres = null;
+            return false;
+        }
+        try
+        {
+            locres = new FTextLocalizationResource(reader);
+        }
+        catch
+        {
+            locres = null;
+        }
+        return (locres != null);
+    }
 
 
-	private static void SaveRaw(string folder, CUE4Parse.FileProvider.Objects.GameFile package, AbstractVfsFileProvider provider, ref int exportCount)
+    private static void SaveRaw(string folder, CUE4Parse.FileProvider.Objects.GameFile package, AbstractVfsFileProvider provider, ref int exportCount)
     {
         var name = package.Name;
         var outPath = Path.Combine(_exportDirectory, folder, name);
