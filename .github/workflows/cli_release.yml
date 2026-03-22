@@ -34,7 +34,7 @@ jobs:
       - name: Publish CLI
         working-directory: CUE4Parse.CLI
         run: |
-          dotnet publish -c Release
+          dotnet publish -c Release -p:CliVersion=${VERSION}
 
       - name: Zip exe as cue4parse.exe
         shell: bash
