@@ -99,7 +99,7 @@ internal static class Program
         var cliVersion = Assembly.GetExecutingAssembly().GetName().Version;
         var libVersion = typeof(DefaultFileProvider).Assembly.GetName().Version;
 
-        var root = new RootCommand($"CUE4Parse.CLI v{cliVersion} (built with CUE4Parse {libVersion})")
+        var root = new RootCommand($"CUE4Parse.CLI {cliVersion} (built with CUE4Parse {libVersion})")
         {
             sources, destination, inputs, files, game, keys, mappings, format, list, overwrite, verbose
         };
