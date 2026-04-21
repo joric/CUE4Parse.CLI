@@ -13,8 +13,7 @@ public class HierarchyEventAction : AbstractHierarchy
     public readonly EAkActionType EventActionType;
     public readonly byte IsBus;
     public readonly uint ReferencedId;
-    public readonly AkProp[] Props;
-    public readonly AkPropRange[] PropRanges;
+    public readonly AkPropBundle PropBundle;
     public readonly object? ActionData;
 
     public HierarchyEventAction(FArchive Ar) : base(Ar)
@@ -24,9 +23,7 @@ public class HierarchyEventAction : AbstractHierarchy
         ReferencedId = Ar.Read<uint>();
         IsBus = Ar.Read<byte>();
 
-        var propBundle = new AkPropBundle(Ar);
-        Props = propBundle.Props;
-        PropRanges = propBundle.PropRanges;
+        PropBundle = new AkPropBundle(Ar);
 
         ActionData = (EventActionType, WwiseVersions.Version) switch
         {
@@ -56,7 +53,7 @@ public class HierarchyEventAction : AbstractHierarchy
             (EAkActionType.Pause, _) => new CAkActionPause(Ar),
             (EAkActionType.Break or
                 EAkActionType.Trigger, < 150) => new CAkActionBypassFX(Ar),
-            (EAkActionType.SetBypassEffectSlot, _) => new CAkActionBypassFX(Ar),
+            (EAkActionType.SetBypassEffectSlot or EAkActionType.SetBypassAllEffects, _) => new CAkActionBypassFX(Ar),
             // TODO: add all action types
             _ => null,
         };
@@ -81,11 +78,8 @@ public class HierarchyEventAction : AbstractHierarchy
         writer.WritePropertyName(nameof(IsBus));
         writer.WriteValue(IsBus != 0);
 
-        writer.WritePropertyName(nameof(Props));
-        serializer.Serialize(writer, Props);
-
-        writer.WritePropertyName(nameof(PropRanges));
-        serializer.Serialize(writer, PropRanges);
+        writer.WritePropertyName(nameof(PropBundle));
+        serializer.Serialize(writer, PropBundle);
 
         if (ActionData != null)
         {

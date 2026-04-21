@@ -140,6 +140,21 @@ public class FStaticMeshRenderData
 
         Bounds = new FBoxSphereBounds(Ar);
 
+        if (Ar.Game == EGame.GAME_RocoKingdomWorld)
+        {
+            foreach (var lod in LODs)
+            {
+                if (lod.PositionVertexBuffer != null && lod.PositionVertexBuffer.Stride != 8) continue;
+                if (lod.PositionVertexBuffer?.Verts == null) continue;
+
+                var verts = lod.PositionVertexBuffer.Verts;
+                for (var i = 0; i < verts.Length; i++)
+                {
+                    verts[i] =  verts[i] * Bounds.BoxExtent + Bounds.Origin;
+                }
+            }
+        }
+
         if (Ar.Versions["StaticMesh.HasLODsShareStaticLighting"])
         {
             if (Ar.Game is >= EGame.GAME_UE5_6 or EGame.GAME_GrayZoneWarfare or EGame.GAME_HighOnLife2)
@@ -162,12 +177,12 @@ public class FStaticMeshRenderData
             Ar.Position += 4; // MaxStreamingTextureFactor
         }
 
-        if (Ar.Game is EGame.GAME_DeltaForceHawkOps or EGame.GAME_DeadzoneRogue) Ar.Position += 4;
+        if (Ar.Game is EGame.GAME_DeltaForce or EGame.GAME_DeadzoneRogue) Ar.Position += 4;
         if (Ar.Game is EGame.GAME_InfinityNikki) Ar.Position += 8;
 
         var screenSizeLength = Ar.Game switch
         {
-            EGame.GAME_FragPunk => 16,
+            EGame.GAME_FragPunk or EGame.GAME_RocoKingdomWorld => 16,
             EGame.GAME_Stalker2 => 14,
             >= EGame.GAME_UE4_9 => MAX_STATIC_LODS_UE4,
             _ => 4
@@ -175,8 +190,14 @@ public class FStaticMeshRenderData
         ScreenSize = new float[screenSizeLength];
         for (var i = 0; i < ScreenSize.Length; ++i)
         {
-            var screenSize = new FPerPlatformFloat(Ar);
-            ScreenSize[i] = screenSize.Value;
+            if (Ar.Game >= EGame.GAME_UE4_20)
+            {
+                ScreenSize[i] = new FPerPlatformFloat(Ar).Value;
+            }
+            else
+            {
+                ScreenSize[i] = Ar.Read<float>();
+            }
 
             if (Ar.Game == EGame.GAME_HogwartsLegacy) Ar.Position += 8;
             if (Ar.Game == EGame.GAME_VisionsofMana) Ar.Position += 4;

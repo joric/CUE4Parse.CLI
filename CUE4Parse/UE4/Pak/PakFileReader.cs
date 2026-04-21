@@ -8,6 +8,7 @@ using System.Text;
 using CommunityToolkit.HighPerformance.Buffers;
 using CUE4Parse.Encryption.Aes;
 using CUE4Parse.FileProvider.Objects;
+using CUE4Parse.GameTypes.ABI.Encryption.Aes;
 using CUE4Parse.GameTypes.Rennsport.Encryption.Aes;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Exceptions;
@@ -91,9 +92,6 @@ namespace CUE4Parse.UE4.Pak
 
             if (pakEntry.IsCompressed)
             {
-#if DEBUG
-                Log.Debug("{EntryName} is compressed with {CompressionMethod}", pakEntry.Name, pakEntry.CompressionMethod);
-#endif
                 switch (Game)
                 {
                     case EGame.GAME_MarvelRivals or EGame.GAME_OperationApocalypse or EGame.GAME_WutheringWaves or EGame.GAME_MindsEye:
@@ -104,7 +102,7 @@ namespace CUE4Parse.UE4.Pak
                         return RennsportCompressedExtract(reader, pakEntry);
                     case EGame.GAME_DragonQuestXI:
                         return DQXIExtract(reader, pakEntry);
-                    case EGame.GAME_ArenaBreakoutInfinite:
+                    case EGame.GAME_ArenaBreakoutInfinite when header is null || ABIDecryption.encryptedFiles.Contains(pakEntry.Extension, StringComparer.OrdinalIgnoreCase):
                         return ABIExtract(reader, pakEntry);
                 }
 
@@ -163,7 +161,7 @@ namespace CUE4Parse.UE4.Pak
                     return RennsportExtract(reader, pakEntry);
                 case EGame.GAME_DragonQuestXI:
                     return DQXIExtract(reader, pakEntry);
-                case EGame.GAME_ArenaBreakoutInfinite:
+                case EGame.GAME_ArenaBreakoutInfinite when header is null || ABIDecryption.encryptedFiles.Contains(pakEntry.Extension, StringComparer.OrdinalIgnoreCase):
                     return ABIExtract(reader, pakEntry);
             }
 
@@ -275,7 +273,7 @@ namespace CUE4Parse.UE4.Pak
             int fileCount = 0;
             EncryptedFileCount = 0;
 
-            if (Ar.Game is EGame.GAME_DreamStar or EGame.GAME_DeltaForceHawkOps)
+            if (Ar.Game is EGame.GAME_DreamStar or EGame.GAME_DeltaForce)
             {
                 primaryIndex.Position += 8; // PathHashSeed
                 fileCount = primaryIndex.Read<int>();
@@ -294,7 +292,7 @@ namespace CUE4Parse.UE4.Pak
             ValidateMountPoint(ref mountPoint);
             MountPoint = mountPoint;
 
-            if (!(Ar.Game is EGame.GAME_DreamStar or EGame.GAME_DeltaForceHawkOps))
+            if (!(Ar.Game is EGame.GAME_DreamStar or EGame.GAME_DeltaForce))
             {
                 fileCount = primaryIndex.Read<int>();
                 primaryIndex.Position += 8; // PathHashSeed
