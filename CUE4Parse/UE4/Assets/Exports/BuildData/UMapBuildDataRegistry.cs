@@ -27,7 +27,7 @@ public class UMapBuildDataRegistry : UObject
         base.Deserialize(Ar, validPos);
 
         var stripFlags = new FStripDataFlags(Ar);
-        if (Ar.Game is EGame.GAME_Farlight84 or EGame.GAME_OutlastTrials or EGame.GAME_DuetNightAbyss or EGame.GAME_CrystalOfAtlan) return;
+        if (Ar.Game is EGame.GAME_Farlight84 or EGame.GAME_OutlastTrials or EGame.GAME_DuetNightAbyss or EGame.GAME_CrystalOfAtlan or EGame.GAME_HonorofKingsWorld) return;
 
         if (!stripFlags.IsAudioVisualDataStripped())
         {
@@ -48,6 +48,7 @@ public class UMapBuildDataRegistry : UObject
             }
 
             if (Ar.Game == EGame.GAME_ArenaBreakoutInfinite) return;
+            if (Ar.Game == EGame.GAME_TheDivisionResurgence) Ar.Position += 12;
             if (Ar.Game == EGame.GAME_HogwartsLegacy)
             {
                 Ar.SkipFixedArray(1);

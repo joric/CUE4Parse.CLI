@@ -6,7 +6,6 @@ using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Assets.Exports.StaticMesh;
 
@@ -98,6 +97,9 @@ public class UStaticMesh : UObject
                             Ar.SkipMultipleBulkArrayData(2);
                         break;
                     }
+                    case EGame.GAME_HonorofKingsWorld:
+                        Ar.SkipBulkArrayData();
+                        break;
                     default:
                         Ar.SkipFixedArray(12); // Vertices
                         Ar.SkipFixedArray(2); // Indices
