@@ -9,6 +9,7 @@ using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Exports.Animation;
 using CUE4Parse.UE4.Assets.Exports.Material;
 using CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
+using CUE4Parse.UE4.Assets.Exports.Nanite;
 using CUE4Parse.UE4.Assets.Exports.Sound;
 using CUE4Parse.UE4.Assets.Exports.StaticMesh;
 using CUE4Parse.UE4.Assets.Exports.Texture;
@@ -66,7 +67,8 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         var sources     = new Option<string[]>(new[] { "-i", "--input" },       "Input game directory");
-        var destination = new Option<string>  (new[] { "-o", "--output" },      "Output directory");
+        var pakFile     = new Option<string>(new[] { "--pak" },                 "Single .pak file to process (no directory scanning)");
+        var destination = new Option<string>  (new[] { "-o", "--output" },      "Output directory (optional for list/json/csv modes)");
         var inputs      = new Option<string[]>(new[] { "-p", "--package" },     "Package path or wildcard pattern (repeatable)");
         var files       = new Option<string[]>(new[] { "-c", "--config" },      "Package list (repeatable)");
         var game        = new Option<string>  (new[] { "-g", "--game" },        ()=>"GAME_UE5_LATEST", "Game version");
@@ -77,18 +79,34 @@ internal static class Program
         var overwrite   = new Option<bool>    (new[] { "-y", "--yes" },         "Overwrite existing files");
         var verbose     = new Option<bool>    (new[] { "-v", "--verbose" },     "Enable verbose output");
 
+        // ExporterOptions flags - modding-friendly defaults
+        var meshFormat      = new Option<string>(new[] { "--mesh-format" },      () => "ActorX",      "Mesh format: ActorX (psk), Gltf2 (glb), UEFormat (uemodel), OBJ");
+        var animFormat      = new Option<string>(new[] { "--anim-format" },      () => "ActorX",      "Animation format: ActorX (psa), UEFormat (ueanim)");
+        var textureFormat   = new Option<string>(new[] { "--texture-format" },   () => "Png",         "Texture format: Png, Jpeg, Tga, Dds");
+        var materialFormat  = new Option<string>(new[] { "--material-format" },  () => "AllLayersNoRef", "Material format: FirstLayer, AllLayersNoRef, AllLayers");
+        var lodFormat       = new Option<string>(new[] { "--lod-format" },       () => "AllLods",     "LOD format: FirstLod, AllLods");
+        var socketFormat    = new Option<string>(new[] { "--socket-format" },    () => "Bone",        "Socket format: Bone, Socket, None");
+        var naniteFormat    = new Option<string>(new[] { "--nanite-format" },    () => "AllLayersNaniteFirst", "Nanite format: OnlyNaniteLOD, OnlyNormalLODs, AllLayersNaniteFirst, AllLayersNaniteLast");
+        var exportMorph     = new Option<bool>(new[] { "--export-morph-targets" },  () => true,  "Export morph targets");
+        var exportMats      = new Option<bool>(new[] { "--export-materials" },       () => true,  "Export materials with meshes");
+        var exportHdr       = new Option<bool>(new[] { "--export-hdr-as-hdr" },      () => true,  "Export HDR textures as .hdr");
+        var compression     = new Option<string>(new[] { "--compression" },          () => "None", "Compression: None, GZIP, ZSTD");
+
         static string GetExamples()
         {
             var sb = new StringBuilder();
             sb.AppendLine("Examples:");
-            sb.AppendLine("  Export all package names to a text file:");
-            sb.AppendLine("    cue4parse -i MyGame -l > packages.txt");
+            sb.AppendLine("  List all packages:");
+            sb.AppendLine("    cue4parse -i MyGame -l");
+            sb.AppendLine();
+            sb.AppendLine("  Process a single .pak file (no directory needed):");
+            sb.AppendLine("    cue4parse --pak MyMod.pak -o Exports -m Mappings.usmap -g GAME_UE5_1");
             sb.AppendLine();
             sb.AppendLine("  Export a single package to stdout in json format:");
             sb.AppendLine("    cue4parse -i MyGame -p Assets/MyAsset.uasset -f json");
             sb.AppendLine();
-            sb.AppendLine("  Export multiple packages matching wildcard patterns to a directory:");
-            sb.AppendLine("    cue4parse -i MyGame -p */Textures* -p */Icons* -o Exports");
+            sb.AppendLine("  Export with PSK meshes and PSA animations:");
+            sb.AppendLine("    cue4parse -i MyGame -p */SkeletalMeshes/* -o Exports --mesh-format ActorX --anim-format ActorX");
             sb.AppendLine();
             sb.AppendLine("  Export packages from list, overwrite existing files:");
             sb.AppendLine("    cue4parse -i MyGame -c packages.txt -o Exports -y");
@@ -101,13 +119,16 @@ internal static class Program
 
         var root = new RootCommand($"CUE4Parse.CLI {cliVersion} (built with CUE4Parse {libVersion})")
         {
-            sources, destination, inputs, files, game, keys, mappings, format, list, overwrite, verbose
+            sources, pakFile, destination, inputs, files, game, keys, mappings, format, list, overwrite, verbose,
+            meshFormat, animFormat, textureFormat, materialFormat, lodFormat, socketFormat, naniteFormat,
+            exportMorph, exportMats, exportHdr, compression
         };
 
         root.SetHandler(async (context) =>
         {
             await ExecuteAsync(
                 context.ParseResult.GetValueForOption(sources) ?? Array.Empty<string>(),
+                context.ParseResult.GetValueForOption(pakFile),
                 context.ParseResult.GetValueForOption(destination),
                 context.ParseResult.GetValueForOption(inputs) ?? Array.Empty<string>(),
                 context.ParseResult.GetValueForOption(files) ?? Array.Empty<string>(),
@@ -117,7 +138,18 @@ internal static class Program
                 context.ParseResult.GetValueForOption(format) ?? "auto",
                 context.ParseResult.GetValueForOption(list),
                 context.ParseResult.GetValueForOption(overwrite),
-                context.ParseResult.GetValueForOption(verbose)
+                context.ParseResult.GetValueForOption(verbose),
+                context.ParseResult.GetValueForOption(meshFormat) ?? "ActorX",
+                context.ParseResult.GetValueForOption(animFormat) ?? "ActorX",
+                context.ParseResult.GetValueForOption(textureFormat) ?? "Png",
+                context.ParseResult.GetValueForOption(materialFormat) ?? "AllLayersNoRef",
+                context.ParseResult.GetValueForOption(lodFormat) ?? "AllLods",
+                context.ParseResult.GetValueForOption(socketFormat) ?? "Bone",
+                context.ParseResult.GetValueForOption(naniteFormat) ?? "AllLayersNaniteFirst",
+                context.ParseResult.GetValueForOption(exportMorph),
+                context.ParseResult.GetValueForOption(exportMats),
+                context.ParseResult.GetValueForOption(exportHdr),
+                context.ParseResult.GetValueForOption(compression) ?? "None"
             );
         });
 
@@ -149,8 +181,12 @@ internal static class Program
     public static string _exportDirectory { get; set; } = "Export";
     public static bool _overwrite { get; set; } = false;
 
-    private static async Task ExecuteAsync(string[] sources, string? destination, string[] inputs, string[] files,
-        string game, string[] keys, string? mappings, string format, bool list, bool overwrite, bool verbose)
+    private static async Task ExecuteAsync(
+        string[] sources, string? pakFilePath, string? destination, string[] inputs, string[] files,
+        string game, string[] keys, string? mappings, string format, bool list, bool overwrite, bool verbose,
+        string meshFormatStr, string animFormatStr, string textureFormatStr, string materialFormatStr,
+        string lodFormatStr, string socketFormatStr, string naniteFormatStr,
+        bool exportMorph, bool exportMats, bool exportHdr, string compressionStr)
     {
         Program._overwrite = overwrite;
 
@@ -178,34 +214,73 @@ internal static class Program
         // Create Version
         var version = new VersionContainer(gameVersion, ETexturePlatform.DesktopMobile);
 
-        var directory = sources.Length>0 ? sources[0] : null;
+        // Determine mode: --pak (single file) vs -i (directory)
+        var singlePakMode = !string.IsNullOrEmpty(pakFilePath);
+        AbstractVfsFileProvider provider;
 
-        if (string.IsNullOrEmpty(directory)) return;
-
-        Console.Error.WriteLine($"Loading {NormPath(directory)}...");
-
-        // Create provider
-        var provider = directory.EndsWith(".apk")
-            ? new ApkFileProvider(directory, new VersionContainer(gameVersion))
-            : new DefaultFileProvider(directory, SearchOption.AllDirectories, new VersionContainer(gameVersion));
-
-        // Set mappings if specified
-        if (!string.IsNullOrEmpty(mappings) && File.Exists(mappings))
+        if (singlePakMode)
         {
-            provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappings);
+            if (!File.Exists(pakFilePath))
+            {
+                Console.Error.WriteLine($"Pak file not found: {pakFilePath}");
+                return;
+            }
+
+            Console.Error.WriteLine($"Loading single pak: {NormPath(pakFilePath)}...");
+
+            // Use the pak's parent directory — don't scan it, just register the one file
+            var pakDir = Path.GetDirectoryName(Path.GetFullPath(pakFilePath))!;
+            provider = new DefaultFileProvider(pakDir, SearchOption.TopDirectoryOnly, new VersionContainer(gameVersion));
+
+            // Set mappings if specified
+            if (!string.IsNullOrEmpty(mappings) && File.Exists(mappings))
+            {
+                provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappings);
+            }
+
+            // Init oodle
+            var oodlePath = Path.Combine(Path.GetTempPath(), OodleHelper.OodleFileName);
+            OodleHelper.DownloadOodleDll(ref oodlePath);
+            OodleHelper.Initialize(oodlePath);
+
+            var zlibPath = Path.Combine(Path.GetTempPath(), ZlibHelper.DLL_NAME);
+            ZlibHelper.DownloadDll(zlibPath);
+            ZlibHelper.Initialize(zlibPath);
+
+            // Register just the one pak file (skip Initialize which scans the whole directory)
+            provider.RegisterVfs(pakFilePath);
         }
+        else
+        {
+            var directory = sources.Length > 0 ? sources[0] : null;
 
-        // Init oodle
-        var oodlePath = Path.Combine(Path.GetTempPath(), OodleHelper.OodleFileName);
-        OodleHelper.DownloadOodleDll(ref oodlePath);
-        OodleHelper.Initialize(oodlePath);
+            if (string.IsNullOrEmpty(directory)) return;
 
-        var zlibPath = Path.Combine(Path.GetTempPath(), ZlibHelper.DLL_NAME);
-        ZlibHelper.DownloadDll(zlibPath);
-        ZlibHelper.Initialize(zlibPath);
+            Console.Error.WriteLine($"Loading {NormPath(directory)}...");
 
-        // Initialize provider
-        provider.Initialize();
+            // Create provider
+            provider = directory.EndsWith(".apk")
+                ? new ApkFileProvider(directory, new VersionContainer(gameVersion))
+                : new DefaultFileProvider(directory, SearchOption.AllDirectories, new VersionContainer(gameVersion));
+
+            // Set mappings if specified
+            if (!string.IsNullOrEmpty(mappings) && File.Exists(mappings))
+            {
+                provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappings);
+            }
+
+            // Init oodle
+            var oodlePath = Path.Combine(Path.GetTempPath(), OodleHelper.OodleFileName);
+            OodleHelper.DownloadOodleDll(ref oodlePath);
+            OodleHelper.Initialize(oodlePath);
+
+            var zlibPath = Path.Combine(Path.GetTempPath(), ZlibHelper.DLL_NAME);
+            ZlibHelper.DownloadDll(zlibPath);
+            ZlibHelper.Initialize(zlibPath);
+
+            // Initialize provider (scans directory for paks)
+            provider.Initialize();
+        }
 
         // Add AES keys
         foreach (var keyEntry in keys)
@@ -218,7 +293,22 @@ internal static class Program
 
         provider.PostMount();
 
-        provider.ChangeCulture(provider.GetLanguageCode(ELanguage.English));
+        // Culture loading — may fail for single-pak mode without Pal-Windows.pak, that's OK
+        try
+        {
+            provider.ChangeCulture(provider.GetLanguageCode(ELanguage.English));
+        }
+        catch (Exception e)
+        {
+            if (singlePakMode)
+            {
+                Console.Error.WriteLine($"Warning: Culture loading failed (expected for single-pak mode): {e.Message}");
+            }
+            else
+            {
+                Console.Error.WriteLine($"Warning: Culture loading failed: {e.Message}");
+            }
+        }
 
         Console.Error.WriteLine($"Total assets: {provider.Files.Count}");
         Console.Error.WriteLine($"Output format: {format}");
@@ -294,25 +384,36 @@ internal static class Program
 
         ExportType type = ExportType.Texture | ExportType.Sound | ExportType.Mesh | ExportType.Animation | ExportType.Other;
 
+        // Build ExporterOptions from CLI flags
         var options = new ExporterOptions
         {
-            LodFormat = ELodFormat.FirstLod,
-            MeshFormat = EMeshFormat.UEFormat,
-            AnimFormat = EAnimFormat.UEFormat,
-            MaterialFormat = EMaterialFormat.AllLayersNoRef,
-            TextureFormat = ETextureFormat.Png,
-            CompressionFormat = EFileCompressionFormat.None,
+            LodFormat = ParseEnum<ELodFormat>(lodFormatStr),
+            MeshFormat = ParseEnum<EMeshFormat>(meshFormatStr),
+            AnimFormat = ParseEnum<EAnimFormat>(animFormatStr),
+            MaterialFormat = ParseEnum<EMaterialFormat>(materialFormatStr),
+            TextureFormat = ParseEnum<ETextureFormat>(textureFormatStr),
+            CompressionFormat = ParseEnum<EFileCompressionFormat>(compressionStr),
             Platform = version.Platform,
-            SocketFormat = ESocketFormat.Bone,
-            ExportMorphTargets = true,
-            ExportMaterials = false
+            SocketFormat = ParseEnum<ESocketFormat>(socketFormatStr),
+            NaniteMeshFormat = ParseEnum<ENaniteMeshFormat>(naniteFormatStr),
+            ExportMorphTargets = exportMorph,
+            ExportMaterials = exportMats,
+            ExportHdrTexturesAsHdr = exportHdr
         };
 
-        // Check for output directory
-        if (string.IsNullOrEmpty(destination)) {
-            Console.Error.WriteLine("Output directory is not specified.");
-            return;
-        } else {
+        // Check for output directory — only required when actually writing files
+        var needsOutputDir = !list && format != "csv" && format != "json";
+        if (string.IsNullOrEmpty(destination))
+        {
+            if (needsOutputDir)
+            {
+                Console.Error.WriteLine("Output directory is not specified. Use -o <dir> or use -f json/csv/-l for stdout output.");
+                return;
+            }
+            Program._exportDirectory = ".";
+        }
+        else
+        {
             Program._exportDirectory = NormPath(destination);
         }
 
@@ -513,6 +614,14 @@ internal static class Program
         return;
     }
 
+    private static T ParseEnum<T>(string value) where T : struct
+    {
+        if (Enum.TryParse<T>(value, ignoreCase: true, out var result))
+            return result;
+        Console.Error.WriteLine($"Warning: Unknown value '{value}' for {typeof(T).Name}, using default");
+        return default;
+    }
+
     public static string NormPath(string path)
     {
         if (string.IsNullOrEmpty(path)) return ".";
@@ -615,8 +724,7 @@ internal static class Program
         foreach (var bitmap in bitmaps ?? Array.Empty<CTexture>())
         {
             if (bitmap is null) continue;
-            bool SaveHdrTexturesAsHdr = true;
-            var bytes = bitmap.Encode(options.TextureFormat, SaveHdrTexturesAsHdr, out var extension);
+            var bytes = bitmap.Encode(options.TextureFormat, options.ExportHdrTexturesAsHdr, out var extension);
             var fileName = $"{texture.Name}.{extension}";
             WriteToFile(folder, fileName, bytes, $"{fileName} ({bitmap.Width}x{bitmap.Height})", ref exportCount);
         }
@@ -653,4 +761,3 @@ internal static class Program
         exportCount++;
     }
 }
-
