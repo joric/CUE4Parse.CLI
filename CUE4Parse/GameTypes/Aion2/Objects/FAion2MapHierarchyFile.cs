@@ -1,4 +1,3 @@
-using System;
 using CUE4Parse.FileProvider.Objects;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Readers;
@@ -10,7 +9,7 @@ namespace CUE4Parse.GameTypes.Aion2.Objects;
 [JsonConverter(typeof(FAion2MapHierarchyFileConverter))]
 public class FAion2MapHierarchyFile : FAion2DataFile
 {
-    public FAion2World[] Worlds;
+    public FAion2World[] Worlds = [];
 
     public FAion2MapHierarchyFile(GameFile file)
     {
@@ -30,7 +29,7 @@ public class FAion2MapHierarchyFile : FAion2DataFile
         {
             var id = Ar.Read<uint>();
             var type = Ar.Read<EAionMapDataHierarchy>();
-            
+
             if (type != EAionMapDataHierarchy.Map)
                 throw new ParserException(Ar, $"Expected Subzone type, got {type} type");
             Id = Ar.Read<uint>();
@@ -133,9 +132,9 @@ public class FAion2MapHierarchyFileConverter : JsonConverter<FAion2MapHierarchyF
     {
         writer.WriteStartObject();
         writer.WritePropertyName(nameof(value.Version));
-        serializer.Serialize(writer, value.Version);
+        serializer.Serialize(writer, value?.Version);
         writer.WritePropertyName(nameof(value.Worlds));
-        serializer.Serialize(writer, value.Worlds);
+        serializer.Serialize(writer, value?.Worlds);
         writer.WriteEndObject();
     }
 }

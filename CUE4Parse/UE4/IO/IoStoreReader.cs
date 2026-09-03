@@ -1,17 +1,15 @@
-using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using CUE4Parse.Encryption.Aes;
 using CUE4Parse.FileProvider.Objects;
+using CUE4Parse.GameTypes.ProSpi.Encryption.Aes;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.IO.Objects;
 using CUE4Parse.UE4.Objects.Core.Misc;
+using CUE4Parse.UE4.Pak;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
 using CUE4Parse.UE4.VirtualFileSystem;
@@ -23,17 +21,39 @@ namespace CUE4Parse.UE4.IO;
 
 public partial class IoStoreReader : AbstractAesVfsReader
 {
+    private readonly record struct DirectoryTraversal(uint Directory, int ParentPathLength);
+
     public readonly IReadOnlyList<FArchive> ContainerStreams;
 
     public readonly FIoStoreTocResource TocResource;
     public readonly Dictionary<FIoChunkId, FIoOffsetAndLength>? TocImperfectHashMapFallback;
-    public FIoContainerHeader? ContainerHeader { get; private set; }
-    public Dictionary<FPackageId, GameFile> PackageIdIndex { get; } = [];
+    private Lazy<FIoContainerHeader?> _containerHeader;
+    private int _packageDataChunkCount = -1;
+    public FIoContainerHeader? ContainerHeader => _containerHeader.Value;
+    public Dictionary<FPackageId, GameFile> PackageIdIndex { get; private set; } = [];
+
+    internal int GetPackageDataChunkCount()
+    {
+        if (_packageDataChunkCount >= 0)
+            return _packageDataChunkCount;
+
+        var packageDataChunkType = Game >= GAME_UE5_0
+            ? (byte) EIoChunkType5.ExportBundleData
+            : (byte) EIoChunkType.ExportBundleData;
+        var count = 0;
+        foreach (ref readonly var chunkId in TocResource.ChunkIds.AsSpan())
+        {
+            if (chunkId.ChunkType == packageDataChunkType && chunkId._chunkIndex == 0)
+                count++;
+        }
+
+        return _packageDataChunkCount = count;
+    }
 
     public override string MountPoint { get; protected set; }
     public sealed override long Length { get; set; }
 
-    public override bool HasDirectoryIndex => TocResource.DirectoryIndexBuffer != null;
+    public override bool HasDirectoryIndex => TocResource.DirectoryIndexBufferOffset != -1;
     public override FGuid EncryptionKeyGuid => TocResource.Header.EncryptionKeyGuid;
     public override bool IsEncrypted => TocResource.Header.ContainerFlags.HasFlag(EIoContainerFlags.Encrypted);
 
@@ -131,7 +151,8 @@ public partial class IoStoreReader : AbstractAesVfsReader
             offsetInFile = bulk.OffsetInFile;
         }
 
-        return Read(offset, size, offsetInFile);
+        var encryptedBytesCount = Game is GAME_TamasShadowveil ? PakFileReader.CalculateEncryptedBytesCountForNetEase(ioEntry.ChunkId) : 0;
+        return Read(offset, size, offsetInFile, encryptedBytesCount);
     }
 
     // If anyone really comes to read this here are some of my thoughts on designing loading of chunk ids
@@ -213,18 +234,19 @@ public partial class IoStoreReader : AbstractAesVfsReader
     {
         if (TryResolve(chunkId, out var offsetLength))
         {
-            return Read((long) offsetLength.Offset, (long) offsetLength.Length);
+            var encryptedBytesCount = Game is GAME_TamasShadowveil ? PakFileReader.CalculateEncryptedBytesCountForNetEase(chunkId) : 0;
+            return Read((long) offsetLength.Offset, (long) offsetLength.Length, encryptedBytesCount: encryptedBytesCount);
         }
 
         throw new KeyNotFoundException($"Couldn't find chunk {chunkId} in IoStore {Name}");
     }
 
-    private byte[] Read(long offset, long length, long offsetInFile = 0L)
+    private byte[] Read(long offset, long length, long offsetInFile = 0L, int encryptedBytesCount = 0)
     {
         switch (Game)
         {
-            case EGame.GAME_MindsEye:
-                return ReadPartiallyEncrypted(offset, length, offsetInFile);
+            case GAME_MindsEye or GAME_TamasShadowveil:
+                return ReadPartiallyEncrypted(offset, length, offsetInFile, encryptedBytesCount);
         }
 
         offset += offsetInFile;
@@ -240,13 +262,16 @@ public partial class IoStoreReader : AbstractAesVfsReader
         var uncompressedBuffer = Array.Empty<byte>();
 
         FArchive?[]? clonedReaders = null;
-        long size = 0;
         for (int blockIndex = firstBlockIndex; blockIndex <= lastBlockIndex; blockIndex++)
         {
             ref var compressionBlock = ref TocResource.CompressionBlocks[blockIndex];
 
             var rawSize = compressionBlock.CompressedSize.Align(Aes.ALIGN);
-            size += rawSize;
+            if (Game is GAME_eBaseballProSpirit)
+            {
+                rawSize = (compressionBlock.CompressedSize + ProSpiEncryption.EncryptionDataTrailerSize).Align(Aes.ALIGN);
+            }
+
             if (compressedBuffer.Length < rawSize)
             {
                 //Console.WriteLine($"{chunkId}: block {blockIndex} CompressedBuffer size: {rawSize} - Had to create copy");
@@ -267,7 +292,9 @@ public partial class IoStoreReader : AbstractAesVfsReader
 
             reader.ReadAt(partitionOffset, compressedBuffer, 0, (int) rawSize);
             // FragPunk decided to encrypt the global utoc too.
-            compressedBuffer = DecryptIfEncrypted(compressedBuffer, 0, (int) rawSize, IsEncrypted, Game == EGame.GAME_FragPunk && Path.Contains("global", StringComparison.Ordinal));
+            // For Lord of Mysteries utoc files are "synthetic", without dir index, so we can't test the key.
+            compressedBuffer = DecryptCompressionBlock(compressedBuffer, (int) rawSize, blockIndex,
+                Game == GAME_LordOfMysteries || Game == GAME_FragPunk && Path.Contains("global", StringComparison.Ordinal));
 
             byte[] src;
             if (compressionBlock.CompressionMethodIndex == 0)
@@ -299,11 +326,12 @@ public partial class IoStoreReader : AbstractAesVfsReader
         return dst;
     }
 
-    private byte[] ReadPartiallyEncrypted(long offset, long length, long offsetInFile)
+    private byte[] ReadPartiallyEncrypted(long offset, long length, long offsetInFile, int encryptedBytesCount)
     {
         var limit = Game switch
         {
-            EGame.GAME_MindsEye => 0x1000,
+            GAME_MindsEye => 0x1000,
+            GAME_TamasShadowveil => encryptedBytesCount,
             _ => throw new ArgumentOutOfRangeException(nameof(Game), "Unsupported game for partial encrypted io store extraction")
         };
 
@@ -312,7 +340,20 @@ public partial class IoStoreReader : AbstractAesVfsReader
         var newFirstBlockIndex = (int) ((offset + offsetInFile) / compressionBlockSize);
         if (newFirstBlockIndex != firstBlockIndex)
         {
-            limit = 0;
+            // TODO: Check if other games using partial encryption might have the same problem as Tamas?
+            // It skips encryption bytes belonging to earlier blocks to find how much of the requested block still needs decryption
+            if (Game is GAME_TamasShadowveil)
+            {
+                for (var blockIndex = firstBlockIndex; blockIndex < newFirstBlockIndex && limit > 0; blockIndex++)
+                {
+                    var skippedRawSize = (int) TocResource.CompressionBlocks[blockIndex].CompressedSize.Align(Aes.ALIGN);
+                    limit = Math.Max(0, limit - skippedRawSize);
+                }
+            }
+            else
+            {
+                limit = 0;
+            }
             offset += offsetInFile;
             offsetInFile = 0;
             firstBlockIndex = (int) (offset / compressionBlockSize);
@@ -407,7 +448,7 @@ public partial class IoStoreReader : AbstractAesVfsReader
         watch.Start();
 
         ProcessIndex(pathComparer);
-        ContainerHeader = ReadContainerHeader();
+        InitializeContainerHeader();
 
         if (Globals.LogVfsMounts)
         {
@@ -415,7 +456,7 @@ public partial class IoStoreReader : AbstractAesVfsReader
             var sb = new StringBuilder($"IoStore \"{Name}\": {FileCount} files");
             if (EncryptedFileCount > 0)
                 sb.Append($" ({EncryptedFileCount} encrypted)");
-            if (MountPoint.Contains("/"))
+            if (MountPoint.Contains('/'))
                 sb.Append($", mount point: \"{MountPoint}\"");
             sb.Append($", order {ReadOrder}");
             sb.Append($", version {(int) TocResource.Header.Version} in {elapsed}");
@@ -425,8 +466,8 @@ public partial class IoStoreReader : AbstractAesVfsReader
 
     private void ProcessIndex(StringComparer pathComparer)
     {
-        if (!HasDirectoryIndex || TocResource.DirectoryIndexBuffer == null) throw new ParserException("No directory index");
-        using var directoryIndex = new GenericBufferReader(DecryptIfEncrypted(TocResource.DirectoryIndexBuffer, IsEncrypted, true));
+        if (!HasDirectoryIndex || TocResource.GetDirectoryIndexBuffer() is not { } indexBuffer) throw new ParserException("No directory index");
+        using var directoryIndex = new GenericBufferReader(DecryptIfEncrypted(indexBuffer, IsEncrypted, true));
 
         string mountPoint;
         try
@@ -444,69 +485,119 @@ public partial class IoStoreReader : AbstractAesVfsReader
         var directoryEntries = directoryIndex.ReadArray<FIoDirectoryIndexEntry>();
         var fileEntries = directoryIndex.ReadArray<FIoFileIndexEntry>();
         var stringTable = directoryIndex.ReadFStringMemoryArray();
+        EncryptedFileCount = IsEncrypted ? fileEntries.Length : 0;
 
         var files = new Dictionary<string, GameFile>(fileEntries.Length, pathComparer);
         var dirNamePool = ArrayPool<char>.Shared.Rent(512);
-        var currentLength = Write(dirNamePool, 0, MountPoint);
-        ReadIndex(dirNamePool, currentLength, 0U);
-
-        void ReadIndex(char[] directoryName, int directoryLength, uint dir)
+        try
         {
-            const uint invalidHandle = uint.MaxValue;
-            while (dir != invalidHandle)
+            var mountPointLength = Write(dirNamePool, 0, MountPoint);
+            ReadIndex(dirNamePool, mountPointLength, directoryEntries, fileEntries, stringTable, files);
+            Files = files;
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(dirNamePool);
+        }
+    }
+
+    protected override byte[] DecryptBytes(byte[] bytes, int beginOffset, int count, FAesKey key, bool isIndex)
+    {
+        if (TocResource.EncryptionMethod != EIoEncryptionMethod.AES_CTR)
+            return base.DecryptBytes(bytes, beginOffset, count, key, isIndex);
+        if (!isIndex)
+            throw new InvalidOperationException("AES-CTR IoStore data requires a compression-block IV.");
+
+        var directoryIndexIv = TocResource.EncryptionIVs[^1];
+        return bytes.CryptCtr(beginOffset, count, key, directoryIndexIv.Bytes);
+    }
+
+    private byte[] DecryptCompressionBlock(byte[] bytes, int count, int blockIndex, bool bypassMountPointCheck)
+    {
+        if (!IsEncrypted || TocResource.EncryptionMethod != EIoEncryptionMethod.AES_CTR)
+            return DecryptIfEncrypted(bytes, 0, count, IsEncrypted, bypassMountPointCheck);
+        if (CustomEncryption is not null)
+            return CustomEncryption(bytes, 0, count, false, this);
+
+        EnsureValidAesKey(AesKey, bypassMountPointCheck);
+        bytes.AsSpan(0, count).CryptCtrInPlace(AesKey!, TocResource.EncryptionIVs[blockIndex].Bytes);
+        return bytes;
+    }
+
+    private void ReadIndex(char[] pathBuffer, int mountPointLength,
+        FIoDirectoryIndexEntry[] directoryEntries, FIoFileIndexEntry[] fileEntries,
+        FStringMemory[] stringTable, Dictionary<string, GameFile> files)
+    {
+        const uint invalidHandle = uint.MaxValue;
+        var packageDataChunkType = Game >= GAME_UE5_0
+            ? (byte) EIoChunkType5.ExportBundleData
+            : (byte) EIoChunkType.ExportBundleData;
+        PackageIdIndex = new Dictionary<FPackageId, GameFile>(GetPackageDataChunkCount());
+        var pendingDirectories = new Stack<DirectoryTraversal>(64);
+        pendingDirectories.Push(new DirectoryTraversal(0U, mountPointLength));
+
+        while (pendingDirectories.TryPop(out var traversal))
+        {
+            var dirEntry = directoryEntries[traversal.Directory];
+            var directoryLength = traversal.ParentPathLength;
+            if (dirEntry.Name != invalidHandle)
             {
-                var dirEntry = directoryEntries[dir];
-                var dirName = dirEntry.Name != invalidHandle ? stringTable[dirEntry.Name] : default;
-                var directoryLengthSnapshot = directoryLength;
+                var dirName = stringTable[dirEntry.Name];
                 if (!dirName.IsEmpty())
-                    directoryLength = Write(directoryName, directoryLength, dirName, false);
+                    directoryLength = Write(pathBuffer, directoryLength, dirName, false);
+            }
 
-                var file = dirEntry.FirstFileEntry;
-                while (file!= invalidHandle)
+            if (dirEntry.NextSiblingEntry != invalidHandle)
+                pendingDirectories.Push(new DirectoryTraversal(dirEntry.NextSiblingEntry, traversal.ParentPathLength));
+            if (dirEntry.FirstChildEntry != invalidHandle)
+                pendingDirectories.Push(new DirectoryTraversal(dirEntry.FirstChildEntry, directoryLength));
+
+            var file = dirEntry.FirstFileEntry;
+            while (file != invalidHandle)
+            {
+                var fileEntry = fileEntries[file];
+                var name = stringTable[fileEntry.Name];
+                var fullPathLength = Write(pathBuffer, directoryLength, name, true);
+                var fullPathSpan = pathBuffer.AsSpan(..fullPathLength);
+                if (Game is GAME_NeedForSpeedMobile or >= GAME_UE6_0) fullPathSpan = fullPathSpan.SubstringAfter("../../../");
+                var path = new string(fullPathSpan);
+
+                var entry = new FIoStoreEntry(this, path, fileEntry.UserData);
+                ref readonly var chunkId = ref TocResource.ChunkIds[fileEntry.UserData];
+                // Normal package data uses chunk index zero. Some optional segments use a non-zero index,
+                // while older containers identify them only through the ".o" package-path modifier.
+                if (chunkId.ChunkType == packageDataChunkType &&
+                    chunkId._chunkIndex == 0 && !FIoStoreEntry.IsOptionalPackagePath(path))
                 {
-                    var fileEntry = fileEntries[file];
-                    var name = stringTable[fileEntry.Name];
-                    var fullPathLength = Write(directoryName, directoryLength, name, true);
-                    var fullPathSpan = directoryName.AsSpan(..fullPathLength);
-                    if (Game == EGame.GAME_NeedForSpeedMobile) fullPathSpan = fullPathSpan.SubstringAfter("../../../");
-                    var path = new string(fullPathSpan);
-
-                    var entry = new FIoStoreEntry(this, path, fileEntry.UserData);
-                    if (entry.IsEncrypted) EncryptedFileCount++;
-                    if (entry.IsUePackage) PackageIdIndex[entry.ChunkId.AsPackageId()] = entry;
-                    files[path] = entry;
-
-                    file = fileEntry.NextFileEntry;
+                    PackageIdIndex[chunkId.AsPackageId()] = entry;
                 }
+                files[path] = entry;
 
-                ReadIndex(directoryName, directoryLength, dirEntry.FirstChildEntry);
-                dir = dirEntry.NextSiblingEntry;
-                directoryLength = directoryLengthSnapshot;
+                file = fileEntry.NextFileEntry;
             }
         }
-
-        Files = files;
-        ArrayPool<char>.Shared.Return(dirNamePool);
     }
+
+    protected void InitializeContainerHeader() => _containerHeader = new Lazy<FIoContainerHeader?>(ReadContainerHeader);
 
     private FIoContainerHeader ReadContainerHeader()
     {
         try
         {
-            var headerChunkId = new FIoChunkId(TocResource.Header.ContainerId.Id, 0, Game >= EGame.GAME_UE5_0 ? (byte) EIoChunkType5.ContainerHeader : (byte) EIoChunkType.ContainerHeader);
+            var headerChunkId = new FIoChunkId(TocResource.Header.ContainerId.Id, 0, Game >= GAME_UE5_0 ? (byte) EIoChunkType5.ContainerHeader : (byte) EIoChunkType.ContainerHeader);
             using var Ar = new FByteArchive("ContainerHeader", Read(headerChunkId), Versions);
             return new FIoContainerHeader(Ar);
         }
         catch (Exception)
         {
-            if (Game >= EGame.GAME_UE5_0)
+            if (Game >= GAME_UE5_0)
                 throw;
             else
                 return null!;
         }
     }
 
-    public override byte[] MountPointCheckBytes() => TocResource.DirectoryIndexBuffer ?? new byte[MAX_MOUNTPOINT_TEST_LENGTH];
+    public override byte[] MountPointCheckBytes() => TocResource.GetDirectoryIndexBuffer() ?? new byte[MAX_MOUNTPOINT_TEST_LENGTH];
     protected override byte[] ReadAndDecrypt(int length) => throw new InvalidOperationException("IoStore can't read bytes without context"); //ReadAndDecrypt(length, Ar, IsEncrypted);
 
     public override void Dispose()

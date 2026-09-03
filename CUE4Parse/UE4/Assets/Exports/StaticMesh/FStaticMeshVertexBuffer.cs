@@ -1,4 +1,3 @@
-using System;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Objects.RenderCore;
@@ -14,14 +13,9 @@ public class FStaticMeshVertexBuffer
     public int NumTexCoords;
     public int Strides;
     public int NumVertices;
-    public bool UseFullPrecisionUVs;
+    public bool UseFullPrecisionUVs = true;
     public bool UseHighPrecisionTangentBasis;
-    public FStaticMeshUVItem[] UV;  // TangentsData ?
-
-    public FStaticMeshVertexBuffer()
-    {
-        UV = [];
-    }
+    [JsonIgnore] public FStaticMeshUVItem[] UV = [];  // TangentsData ?
 
     public FStaticMeshVertexBuffer(FArchive Ar)
     {
@@ -29,33 +23,42 @@ public class FStaticMeshVertexBuffer
 
         // SerializeMetaData
         NumTexCoords = Ar.Read<int>();
-        Strides = Ar.Game < EGame.GAME_UE4_19 ? Ar.Read<int>() : -1;
+        Strides = Ar.Game < GAME_UE4_19 ? Ar.Read<int>() : -1;
         NumVertices = Ar.Read<int>();
-        UseFullPrecisionUVs = Ar.ReadBoolean();
-        UseHighPrecisionTangentBasis = Ar.Game >= EGame.GAME_UE4_12 && Ar.ReadBoolean();
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.AddedFullPrecisionUV) UseFullPrecisionUVs = Ar.ReadBoolean();
+        UseHighPrecisionTangentBasis = Ar.Game >= GAME_UE4_12 && Ar.ReadBoolean();
 
         int customData = 0;
-        if (Ar.Game is EGame.GAME_DeltaForce or EGame.GAME_SuicideSquad) Ar.Position += 4;
-        if (Ar.Game is EGame.GAME_FateTrigger) customData = Ar.Read<int>();
+        if (Ar.Game is GAME_DeltaForce or GAME_SuicideSquad) Ar.Position += 4;
+        if (Ar.Game is GAME_FateTrigger) customData = Ar.Read<int>();
+        if (Ar.Game is GAME_GearsofWarEDay && NumVertices == 0) return;
 
         if (!stripDataFlags.IsAudioVisualDataStripped())
         {
-            if (Ar.Game < EGame.GAME_UE4_19)
+            if (Ar.Game < GAME_UE4_19)
             {
                 UV = Ar.ReadBulkArray(() => new FStaticMeshUVItem(Ar, UseHighPrecisionTangentBasis, NumTexCoords, UseFullPrecisionUVs));
             }
             else
             {
                 var tempTangents = Array.Empty<FPackedNormal[]>();
-                if (Ar.Game is EGame.GAME_StarWarsJediFallenOrder or EGame.GAME_StarWarsJediSurvivor && Ar.ReadBoolean()) // bDropNormals
-                {
+                if (Ar.Game is GAME_StarWarsJediFallenOrder or GAME_StarWarsJediSurvivor && Ar.ReadBoolean()) // bDropNormals
                     goto texture_coordinates;
-                }
 
-                if (Ar.Game is EGame.GAME_HonorofKingsWorld)
+                var customTangents = Ar.Game switch
                 {
-                    // packed normals, could be 4 or 8 bytes with UseHighPrecisionTangentBasis
-                    Ar.SkipBulkArrayData();
+                    GAME_HonorofKingsWorld => Ar.ReadBulkArray(() => FStaticMeshUVItem.SerializeHonorOfKingsWorldQTangent(Ar, UseHighPrecisionTangentBasis)),
+                    GAME_FinalFantasy7Rebirth => Ar.ReadBulkArray(() => FStaticMeshUVItem.SerializeTangentsFF7R(Ar)),
+                    GAME_GangstarMirageCity => FStaticMeshUVItem.SerializeTangentsGangstar(Ar),
+                    _ => null,
+                };
+
+                if (customTangents is not null)
+                {
+                    tempTangents = customTangents;
+                    if (tempTangents.Length != NumVertices)
+                        throw new ParserException($"NumVertices={tempTangents.Length} != NumVertices={NumVertices}");
+
                     goto texture_coordinates;
                 }
 
@@ -71,7 +74,7 @@ public class FStaticMeshVertexBuffer
                 if (Ar.Position - position != itemCount * itemSize)
                     throw new ParserException($"Read incorrect amount of tangent bytes, at {Ar.Position}, should be: {position + itemSize * itemCount} behind: {position + (itemSize * itemCount) - Ar.Position}");
 
-                if (Ar.Game == EGame.GAME_FateTrigger && customData > 0)
+                if (Ar.Game == GAME_FateTrigger && customData > 0)
                 {
                     Ar.SkipBulkArrayData();
                 }
@@ -92,7 +95,7 @@ public class FStaticMeshVertexBuffer
                 UV = new FStaticMeshUVItem[NumVertices];
                 for (var i = 0; i < NumVertices; i++)
                 {
-                    if (Ar.Game is EGame.GAME_StarWarsJediFallenOrder or EGame.GAME_StarWarsJediSurvivor or EGame.GAME_HonorofKingsWorld && tempTangents.Length == 0)
+                    if (Ar.Game is GAME_StarWarsJediFallenOrder or GAME_StarWarsJediSurvivor && tempTangents.Length == 0)
                     {
                         UV[i] = new FStaticMeshUVItem([new FPackedNormal(0), new FPackedNormal(0), new FPackedNormal(0)], uv[i]);
                     }
@@ -102,7 +105,7 @@ public class FStaticMeshVertexBuffer
                     }
                 }
 
-                if (Ar.Game == EGame.GAME_TorchlightInfinite) Ar.SkipBulkArrayData();
+                if (Ar.Game == GAME_TorchlightInfinite) Ar.SkipBulkArrayData();
             }
         }
         else

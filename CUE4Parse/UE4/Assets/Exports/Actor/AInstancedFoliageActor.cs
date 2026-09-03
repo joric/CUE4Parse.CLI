@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.UObject;
@@ -18,7 +16,7 @@ public class AInstancedFoliageActor : AISMPartitionActor
     public override void Deserialize(FAssetArchive Ar, long validPos)
     {
         base.Deserialize(Ar, validPos);
-        if (Ar.Game == EGame.GAME_WorldofJadeDynasty) Ar.Position += 12;
+        if (Ar.Game == GAME_WorldofJadeDynasty) Ar.Position += 12;
         if (FFoliageCustomVersion.Get(Ar) < FFoliageCustomVersion.Type.CrossLevelBase)
         {
             FoliageMeshes_Deprecated = Ar.ReadMap(() => new FPackageIndex(Ar), () => new FFoliageMeshInfo_Deprecated(Ar));
@@ -29,7 +27,7 @@ public class AInstancedFoliageActor : AISMPartitionActor
         }
         else
         {
-            if (Ar.Game == EGame.GAME_MafiaTheOldCountry) Ar.Position += 4;
+            if (Ar.Game == GAME_MafiaTheOldCountry) Ar.Position += 4;
             FoliageInfos = Ar.ReadMap(() => new FPackageIndex(Ar), () => new FFoliageInfo(Ar));
         }
     }
@@ -69,8 +67,53 @@ public struct FFoliageMeshInfo_Deprecated
         }
         else
         {
-            OldInstanceClusters = Ar.ReadArray(() => new FFoliageInstanceCluster_Deprecated(Ar));
+            if (Ar.Game >= GAME_UE4_0)
+            {
+                OldInstanceClusters = Ar.ReadArray(() => new FFoliageInstanceCluster_Deprecated(Ar));
+            }
+            else
+            {
+                Ar.SkipArray(() => new FFoliageInstanceCluster_LegacyDeprecated(Ar)); // InstanceClusters
+                Ar.SkipArray(() => new FFoliageInstance_Deprecated(Ar)); // Instances
+                if (Ar.Ver >= EUnrealEngineObjectUE3Version.FOLIAGE_SAVE_UI_DATA)
+                {
+                    Ar.Position += sizeof(int); // FPackageIndex - Settings
+                }
+            }
         }
+    }
+}
+
+public struct FFoliageInstance_Deprecated
+{
+    public FFoliageInstance_Deprecated(FAssetArchive Ar)
+    {
+        Ar.Position += sizeof(int); // FPackageIndex - Base
+        Ar.Position += sizeof(float) * 3; // FVector - Location
+        Ar.Position += sizeof(float) * 3; // FRotator - Rotation
+        Ar.Position += sizeof(float) * 3; // FVector - DrawScale3D
+
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.FOLIAGE_INSTANCE_SAVE_EDITOR_DATA)
+        {
+            Ar.Position += sizeof(int); // int - ClusterIndex
+            Ar.Position += sizeof(float) * 3; // FRotator - PreAlignRotation
+            Ar.Position += sizeof(uint); // uint - ClusterIndex
+        }
+
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.FOLIAGE_ADDED_Z_OFFSET)
+        {
+            Ar.Position += sizeof(float); // float - ZOffset
+        }
+    }
+}
+
+public class FFoliageInstanceCluster_LegacyDeprecated
+{
+    public FFoliageInstanceCluster_LegacyDeprecated(FAssetArchive Ar)
+    {
+        Ar.Position += sizeof(float) * 7; // FBoxSphereBounds - Bounds
+        Ar.Position += sizeof(int); // FPackageIndex - ClusterComponent
+        Ar.SkipArray<int>(); // InstanceIndices
     }
 }
 

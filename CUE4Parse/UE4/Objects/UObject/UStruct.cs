@@ -1,17 +1,15 @@
-using System;
-using System.Collections.Generic;
 using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Kismet;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Objects.UObject;
 
 [SkipObjectRegistration]
 public class UStruct : UField
 {
+    
     public FPackageIndex SuperStruct;
     public FPackageIndex[] Children;
     public FField[] ChildProperties;
@@ -21,7 +19,13 @@ public class UStruct : UField
     {
         base.Deserialize(Ar, validPos);
 
-        SuperStruct = new FPackageIndex(Ar);
+        SuperStruct = Ar.Ver >= EUnrealEngineObjectUE3Version.MOVED_SUPERFIELD_TO_USTRUCT ? new FPackageIndex(Ar) : SuperField;
+
+        if (Ar.Ver < EUnrealEngineObjectUE4Version.CONSOLIDATE_HEADER_PARSER_ONLY_PROPERTIES)
+        {
+            new FPackageIndex(Ar); // ScriptText
+        }
+
         if (FFrameworkObjectVersion.Get(Ar) < FFrameworkObjectVersion.Type.RemoveUField_Next)
         {
             var firstChild = new FPackageIndex(Ar);
@@ -32,15 +36,30 @@ public class UStruct : UField
             Children = Ar.ReadArray(() => new FPackageIndex(Ar));
         }
 
+        if (Ar.Ver < EUnrealEngineObjectUE3Version.MovedFriendlyNameToUFunction)
+        {
+            Ar.SkipFName();
+        }
+
+        if (Ar.Ver < EUnrealEngineObjectUE4Version.CONSOLIDATE_HEADER_PARSER_ONLY_PROPERTIES)
+        {
+            if (Ar.Ver > EUnrealEngineObjectUE3Version.AddedCppTextToUStruct)
+            {
+                Ar.Position += sizeof(int); // FPackageIndex - CppText
+            }
+
+            Ar.Position += sizeof(int) * 2; // int - Line, TextPos
+        }
+
         if (FCoreObjectVersion.Get(Ar) >= FCoreObjectVersion.Type.FProperties)
         {
             DeserializeProperties(Ar);
         }
 
         var bytecodeBufferSize = Ar.Read<int>();
-        var serializedScriptSize = Ar.Read<int>();
+        var serializedScriptSize = Ar.Ver >= EUnrealEngineObjectUE3Version.USTRUCT_SERIALIZE_ONDISK_SCRIPTSIZE ? Ar.Read<int>() : bytecodeBufferSize;
 
-        if (Ar.Owner!.Provider?.ReadScriptData == true && serializedScriptSize > 0)
+        if (Ar.Owner!.Provider?.ReadScriptData == true && Ar.Game >= GAME_UE4_0 && serializedScriptSize > 0)
         {
             using var kismetAr = new FKismetArchive(Name, Ar.ReadBytes(serializedScriptSize), Ar.Owner, Ar.Versions);
             var tempCode = new List<KismetExpression>();
@@ -53,7 +72,7 @@ public class UStruct : UField
             }
             catch (Exception e)
             {
-                Log.Warning(e, $"Failed to serialize script bytecode in {Name}");
+                Log.Warning(e, "Failed to serialize script bytecode in {Name}", Name);
             }
             finally
             {

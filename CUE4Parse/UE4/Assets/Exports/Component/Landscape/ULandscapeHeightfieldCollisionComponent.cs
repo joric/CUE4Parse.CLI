@@ -9,17 +9,29 @@ public class ULandscapeHeightfieldCollisionComponent : USceneComponent
     public override void Deserialize(FAssetArchive Ar, long validPos)
     {
         base.Deserialize(Ar, validPos);
-        if (Ar.Game == EGame.GAME_WorldofJadeDynasty) Ar.Position += 16;
-        var bCooked = Ar.ReadBoolean();
-        if (bCooked)
+        if (Ar.Game == GAME_WorldofJadeDynasty) Ar.Position += 16;
+
+        if (Ar.Ver < EUnrealEngineObjectUE4Version.LANDSCAPE_COLLISION_DATA_COOKING && (Ar.IsFilterEditorOnly || Ar.Game < GAME_UE4_0))
         {
-            if (Ar.Game >= EGame.GAME_UE4_14)
-                if (Ar.Game == EGame.GAME_PlayerUnknownsBattlegrounds)
-                    _ = new FByteBulkData(Ar);
+            new FWordBulkData(Ar); // CollisionHeightData
+            if (Ar.Ver >= EUnrealEngineObjectUE3Version.LANDSCAPE_PHYS_MATERIALS)
+            {
+                new FByteBulkData(Ar); // DominantLayerData
+            }
+        }
+        else
+        {
+            var bCooked = Ar.ReadBoolean();
+            if (bCooked)
+            {
+                if (Ar.Game >= GAME_UE4_14)
+                    if (Ar.Game == GAME_PlayerUnknownsBattlegrounds)
+                        _ = new FByteBulkData(Ar);
+                    else
+                        Ar.SkipBulkArrayData(); // CookedCollisionData
                 else
-                    Ar.SkipBulkArrayData(); // CookedCollisionData
-            else
-                Ar.SkipFixedArray(1);
+                    Ar.SkipFixedArray(1);
+            }
         }
     }
 }

@@ -1,24 +1,27 @@
-using System;
 using System.Buffers;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
+using AssetRipper.TextureDecoder.Astc;
 using AssetRipper.TextureDecoder.Bc;
+using AssetRipper.TextureDecoder.Etc;
+using AssetRipper.TextureDecoder.Pvrtc;
 using AssetRipper.TextureDecoder.Rgb.Formats;
+using CUE4Parse_Conversion.Textures.ASTC;
+using CUE4Parse_Conversion.Textures.BC;
+using CUE4Parse_Conversion.Textures.ETC;
+using CUE4Parse_Conversion.Textures.Crunch;
+using CUE4Parse_Conversion.Textures.Custom;
 using CUE4Parse.Compression;
 using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Exceptions;
+using CUE4Parse.UE4.Versions;
 using CUE4Parse.Utils;
-using CUE4Parse_Conversion.Textures.ASTC;
-using CUE4Parse_Conversion.Textures.BC;
-using CUE4Parse_Conversion.Textures.DXT;
-using Serilog;
 
 namespace CUE4Parse_Conversion.Textures;
 
 public static class TextureDecoder
 {
     public static bool UseAssetRipperTextureDecoder { get; set; } = false;
+    internal static readonly bool IsWindows = OperatingSystem.IsWindows();
 
     public static CTexture? Decode(this UTexture texture, int maxMipSize, ETexturePlatform platform = ETexturePlatform.DesktopMobile) => texture.DecodeMip(texture.GetMipIndexByMaxSize(maxMipSize), platform);
     public static CTexture? Decode(this UTexture texture, ETexturePlatform platform = ETexturePlatform.DesktopMobile) => texture.DecodeMip(texture.GetFirstMipIndex(), platform);
@@ -27,20 +30,9 @@ public static class TextureDecoder
         if (texture.PlatformData is { FirstMipToSerialize: >= 0, VTData: { } vt } && vt.IsInitialized())
             return DecodeVT(texture, vt);
 
-        if (mip == null)
-            return null;
+        if (mip is null) return null; // TODO: we should let it throw the exception
 
-        var sizeX = mip.SizeX;
-        var sizeY = mip.SizeY;
-        var sizeZ = mip.SizeZ;
-
-        if (texture.Format == EPixelFormat.PF_BC7)
-        {
-            sizeX = sizeX.Align(4);
-            sizeY = sizeY.Align(4);
-        }
-
-        DecodeTexture(texture, mip, sizeX, sizeY, sizeZ, platform, out var data, out var colorType);
+        DecodeTexture(texture, mip, platform, out var data, out var colorType, out var sizeX, out var sizeY, out var sizeZ);
         return new CTexture(sizeX, sizeY, colorType, data);
     }
 
@@ -50,20 +42,9 @@ public static class TextureDecoder
             return DecodeVT(texture, vt, mipIndex);
 
         var mip = texture.GetMip(mipIndex);
-        if (mip == null)
-            return null;
+        if (mip is null) return null; // TODO: we should let it throw the exception
 
-        var sizeX = mip.SizeX;
-        var sizeY = mip.SizeY;
-        var sizeZ = mip.SizeZ;
-
-        if (texture.Format == EPixelFormat.PF_BC7)
-        {
-            sizeX = sizeX.Align(4);
-            sizeY = sizeY.Align(4);
-        }
-
-        DecodeTexture(texture, mip, sizeX, sizeY, sizeZ, platform, out var data, out var colorType);
+        DecodeTexture(texture, mip, platform, out var data, out var colorType, out var sizeX, out var sizeY, out var sizeZ);
         return new CTexture(sizeX, sizeY, colorType, data);
     }
 
@@ -122,7 +103,7 @@ public static class TextureDecoder
             for (uint layer = 0; layer < vt.NumLayers; layer++)
             {
                 var layerFormat = vt.LayerTypes[layer];
-                if (PixelFormatUtils.PixelFormats.ElementAtOrDefault((int) layerFormat) is not { Supported: true } formatInfo || formatInfo.BlockBytes == 0)
+                if (!PixelFormatUtils.PixelFormats.TryGetValue(layerFormat, out var formatInfo) || !formatInfo.Supported || formatInfo.BlockBytes == 0)
                     throw new NotImplementedException($"The supplied pixel format {layerFormat} is not supported!");
 
                 var tileWidthInBlocks = tilePixelSize.DivideAndRoundUp(formatInfo.BlockSizeX);
@@ -131,7 +112,7 @@ public static class TextureDecoder
                 var packedOutputSize = packedStride * tileHeightInBlocks;
 
                 var layerData = ArrayPool<byte>.Shared.Rent(packedOutputSize);
-                var crunchContextCache = new Dictionary<(int ChunkIndex, uint Layer), IntPtr>();
+                var crunchContextCache = new Dictionary<(int ChunkIndex, uint Layer), CrunchDecoder.CrunchContext>();
 
                 for (uint tileIndexInMip = 0; tileIndexInMip < tileOffsetData.MaxAddress; tileIndexInMip++)
                 {
@@ -150,7 +131,7 @@ public static class TextureDecoder
                         var contextKey = (chunkIndex, layer);
                         try
                         {
-                            if (!crunchContextCache.TryGetValue(contextKey, out var ctx))
+                            if (!crunchContextCache.TryGetValue(contextKey, out var context))
                             {
                                 var headerOffset = (int) chunk.CodecPayloadOffset[layer];
                                 var headerEnd = (int) chunk.CodecPayloadSize;
@@ -165,28 +146,13 @@ public static class TextureDecoder
                                 if (headerSize <= 0 || (headerOffset + headerSize) > chunkData.Length)
                                     throw new ParserException("Incorrect crunch codec payload");
 
-                                fixed (byte* pHeader = &chunkData[headerOffset])
-                                {
-                                    ctx = (IntPtr) PlatformDeswizzlers.crnd_unpack_begin(pHeader, (uint) headerSize);
-                                }
-
-                                if (ctx == IntPtr.Zero)
-                                    throw new ParserException("Failed to unpack crunch codec header");
-
-                                crunchContextCache[contextKey] = ctx;
+                                context = new CrunchDecoder.CrunchContext(chunkData, headerOffset, headerSize);
+                                crunchContextCache[contextKey] = context;
                             }
 
-                            fixed (byte* srcPtr = &chunkData[(int) tileStart])
-                            fixed (byte* outPtr = layerData)
-                            {
-                                void* dst = outPtr;
-                                uint rowPitch = (uint) (tilePixelSize / formatInfo.BlockSizeX * formatInfo.BlockBytes);
-
-                                bool ok = PlatformDeswizzlers.crnd_unpack_level_segmented((void*) ctx, srcPtr, tileLength, &dst, (uint) packedOutputSize, rowPitch, 0);
-
-                                if (!ok)
-                                    throw new ParserException($"Failed to unpack tile ({tileX}, {tileY}) at {tileStart}");
-                            }
+                            var rowPitch = (uint) (tilePixelSize / formatInfo.BlockSizeX * formatInfo.BlockBytes);
+                            if (!context.TryDecompressSegment(chunkData, checked((int) tileStart), tileLength, layerData, rowPitch, 0))
+                                throw new ParserException($"Failed to unpack tile ({tileX}, {tileY}) at {tileStart}");
                         }
                         catch (ParserException e)
                         {
@@ -202,7 +168,8 @@ public static class TextureDecoder
                     if (pixelDataPtr is null)
                     {
                         colorType = tileColorType;
-                        var tempFormatInfo = PixelFormatUtils.PixelFormats.ElementAtOrDefault((int) tileColorType)!;
+                        if (!PixelFormatUtils.PixelFormats.TryGetValue(tileColorType, out var tempFormatInfo))
+                            throw new NotImplementedException("Unsupported pixel format: " + tileColorType);
                         bytesPerPixel = tempFormatInfo.BlockBytes / (tempFormatInfo.BlockSizeX * tempFormatInfo.BlockSizeY * tempFormatInfo.BlockSizeZ);
                         rowBytes = bytesPerPixel * bitmapWidth;
                         tileRowBytes = tileSize * bytesPerPixel;
@@ -218,16 +185,14 @@ public static class TextureDecoder
                         var tileOffset = ((i + tileBorderSize) * tilePixelSize + tileBorderSize) * bytesPerPixel;
                         var offset = tileX * bytesPerPixel + (tileY + i) * rowBytes;
                         var srcSpan = data.AsSpan(tileOffset, tileRowBytes);
-                        var destSpan = result.Slice(offset);
+                        var destSpan = result[offset..];
                         srcSpan.CopyTo(destSpan);
                     }
                 }
 
                 // free crunch context
-                foreach (var ctx in crunchContextCache.Values)
-                {
-                    PlatformDeswizzlers.crnd_unpack_end((void*) ctx);
-                }
+                foreach (var context in crunchContextCache.Values)
+                    context.Dispose();
 
                 ArrayPool<byte>.Shared.Return(layerData);
             }
@@ -238,27 +203,17 @@ public static class TextureDecoder
         }
     }
 
-    public static unsafe CTexture[]? DecodeTextureArray(this UTexture2DArray texture, ETexturePlatform platform = ETexturePlatform.DesktopMobile)
+    public static unsafe CTexture[]? DecodeTextureArray(this UTexture2DArray texture, ETexturePlatform platform = ETexturePlatform.DesktopMobile) => texture.DecodeTextureArray(texture.GetFirstMipIndex(), platform);
+    public static unsafe CTexture[]? DecodeTextureArray(this UTexture2DArray texture, int mipIndex, ETexturePlatform platform = ETexturePlatform.DesktopMobile) => texture.DecodeTextureArray(texture.GetMip(mipIndex), platform);
+    public static unsafe CTexture[]? DecodeTextureArray(this UTexture2DArray texture, FTexture2DMipMap? mip, ETexturePlatform platform = ETexturePlatform.DesktopMobile)
     {
-        var mip = texture.GetFirstMip();
+        if (mip is null) return null; // TODO: we should let it throw the exception
 
-        if (mip is null)
-            return null;
-
-        var sizeX = mip.SizeX;
-        var sizeY = mip.SizeY;
-        var sizeZ = mip.SizeZ;
-
-        if (texture.Format == EPixelFormat.PF_BC7)
-        {
-            sizeX = sizeX.Align(4);
-            sizeY = sizeY.Align(4);
-        }
-
-        DecodeTexture(texture, mip, sizeX, sizeY, sizeZ, platform, out var data, out var colorType);
+        DecodeTexture(texture, mip, platform, out var data, out var colorType, out var sizeX, out var sizeY, out var sizeZ);
 
         var bitmaps = new CTexture[sizeZ];
-        var offset = sizeX * sizeY * 4;
+        var bytesPerPixel = GetBytesPerPixel(colorType);
+        var offset = sizeX * sizeY * bytesPerPixel;
 
         fixed (byte* dataPtr = data)
         {
@@ -266,21 +221,54 @@ public static class TextureDecoder
             {
                 if (offset * (i + 1) > data.Length)
                     break;
-                bitmaps[i] = new CTexture(sizeX, sizeY, colorType, GetSliceData(dataPtr, sizeX, sizeY, 4, i).ToArray());
+                bitmaps[i] = new CTexture(sizeX, sizeY, colorType, GetSliceData(dataPtr, sizeX, sizeY, bytesPerPixel, i).ToArray());
             }
         }
         return bitmaps;
     }
 
-    private static void DecodeTexture(UTexture texture, FTexture2DMipMap? mip, int sizeX, int sizeY, int sizeZ, ETexturePlatform platform, out byte[] data, out EPixelFormat colorType)
+    private static void DecodeTexture(UTexture texture, FTexture2DMipMap? mip, ETexturePlatform platform, out byte[] data, out EPixelFormat colorType, out int sizeX, out int sizeY, out int sizeZ)
     {
         var format = texture.Format;
         if (mip?.BulkData?.Data is not { Length: > 0 })
             throw new ParserException("Supplied MipMap is null or has empty data!");
-        if (PixelFormatUtils.PixelFormats.ElementAtOrDefault((int) format) is not { Supported: true } formatInfo || formatInfo.BlockBytes == 0)
+        if (!PixelFormatUtils.PixelFormats.TryGetValue(format, out var formatInfo) || !formatInfo.Supported || formatInfo.BlockBytes == 0)
             throw new NotImplementedException($"The supplied pixel format {format} is not supported!");
 
         var bytes = mip.BulkData.Data;
+        sizeX = mip.SizeX;
+        sizeY = mip.SizeY;
+        sizeZ = mip.SizeZ;
+
+        if (texture is UVolumeTexture or UTextureCube)
+        {
+            var slices = texture.PlatformData.GetNumSlices();
+            if (texture.Owner?.Provider?.Versions.Game == EGame.GAME_Borderlands4)
+            {
+                slices = slices != 1 ? slices >> 1 : 1;
+            }
+
+            // A volume's depth shrinks with every mip and is written on the mip itself, while
+            // PackedData only describes mip 0 and doesn't always work with it. Mips below 4.20
+            // have no depth at all, so we fall back to the slice count when there's nothing usable
+            if (texture is UVolumeTexture && sizeZ > 1)
+            {
+                slices = sizeZ;
+            }
+
+            sizeY *= slices;
+            if (sizeZ == slices) sizeZ = 1;
+        }
+
+        if (format == EPixelFormat.PF_BC7)
+        {
+            sizeX = sizeX.Align(4);
+            sizeY = sizeY.Align(4);
+        }
+
+        // TODO: Only known game to use this is PUBG Mobile, not sure if this is right place to decompress, probably not and should be refactored
+        if (texture.PlatformData.PixelFormat.EndsWith("_crunched", StringComparison.OrdinalIgnoreCase))
+            bytes = CrunchDecoder.DecompressMip(bytes, sizeX, sizeY, sizeZ, formatInfo);
 
         // If the platform requires deswizzling, check if we should even try.
         if (platform is not ETexturePlatform.DesktopMobile)
@@ -322,13 +310,12 @@ public static class TextureDecoder
                 if (UseAssetRipperTextureDecoder)
                 {
                     Bc1.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
-                    colorType = EPixelFormat.PF_B8G8R8A8;
                 }
                 else
                 {
-                    data = DXTDecoder.DXT1(bytes, sizeX, sizeY, sizeZ);
-                    colorType = EPixelFormat.PF_R8G8B8A8;
+                    data = BCDecoder.BC1(bytes, sizeX, sizeY, sizeZ);
                 }
+                colorType = EPixelFormat.PF_R8G8B8A8;
                 break;
             }
             case EPixelFormat.PF_DXT3:
@@ -336,35 +323,42 @@ public static class TextureDecoder
                 if (UseAssetRipperTextureDecoder)
                 {
                     Bc2.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
-                    colorType = EPixelFormat.PF_B8G8R8A8;
                 }
                 else
                 {
-                    data = DXTDecoder.DXT3(bytes, sizeX, sizeY, sizeZ);
-                    colorType = EPixelFormat.PF_R8G8B8A8;
-                }
+                    data = BCDecoder.BC2(bytes, sizeX, sizeY, sizeZ);
+                    }
+                colorType = EPixelFormat.PF_R8G8B8A8;
                 break;
             }
             case EPixelFormat.PF_DXT5:
                 if (UseAssetRipperTextureDecoder)
                 {
                     Bc3.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
-                    colorType = EPixelFormat.PF_B8G8R8A8;
                 }
                 else
                 {
-                    data = DXTDecoder.DXT5(bytes, sizeX, sizeY, sizeZ);
-                    colorType = EPixelFormat.PF_R8G8B8A8;
+                    data = BCDecoder.BC3(bytes, sizeX, sizeY, sizeZ);
                 }
+                colorType = EPixelFormat.PF_R8G8B8A8;
                 break;
             case EPixelFormat.PF_ASTC_4x4:
             case EPixelFormat.PF_ASTC_6x6:
             case EPixelFormat.PF_ASTC_8x8:
             case EPixelFormat.PF_ASTC_10x10:
             case EPixelFormat.PF_ASTC_12x12:
-                data = ASTCDecoder.RGBA8888(bytes, formatInfo.BlockSizeX, formatInfo.BlockSizeY, formatInfo.BlockSizeZ, sizeX, sizeY, sizeZ);
+            case EPixelFormat.PF_ASTC_8x5:
+            case EPixelFormat.PF_ASTC_8x6:
+            case EPixelFormat.PF_ASTC_10x8:
+                if (UseAssetRipperTextureDecoder)
+                {
+                    AstcDecoder.DecodeASTC<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, formatInfo.BlockSizeX, formatInfo.BlockSizeY, out data);
+                }
+                else
+                {
+                    data = ASTCDecoder.RGBA8888(bytes, formatInfo.BlockSizeX, formatInfo.BlockSizeY, formatInfo.BlockSizeZ, sizeX, sizeY, sizeZ);
+                }
                 colorType = EPixelFormat.PF_R8G8B8A8;
-
                 if (isNormalMap)
                 {
                     // UE4 drops blue channel for normal maps before encoding, restore it
@@ -385,51 +379,113 @@ public static class TextureDecoder
                 break;
             case EPixelFormat.PF_BC4:
                 if (UseAssetRipperTextureDecoder)
-                    Bc4.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                    Bc4.Decompress<ColorBGRA<byte>, byte>(bytes, sizeX, sizeY * sizeZ, out data);
                 else
                     data = BCDecoder.BC4(bytes, sizeX, sizeY, sizeZ);
                 colorType = EPixelFormat.PF_B8G8R8A8;
                 break;
             case EPixelFormat.PF_BC5:
                 if (UseAssetRipperTextureDecoder)
-                    Bc5.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                {
+                    Bc5.Decompress<ColorBGRA<byte>, byte>(bytes, sizeX, sizeY * sizeZ, out data);
+                    for (var i = 0; i < sizeX * sizeY * sizeZ; i++)
+                        data[i * 4] = BCDecoder.GetZNormal(data[i * 4 + 2], data[i * 4 + 1]);
+                }
                 else
+                {
+                    // Blue channel is already restored in BCDecoder.BC5
                     data = BCDecoder.BC5(bytes, sizeX, sizeY, sizeZ);
-                for (var i = 0; i < sizeX * sizeY; i++)
-                    data[i * 4] = BCDecoder.GetZNormal(data[i * 4 + 2], data[i * 4 + 1]);
+                }
                 colorType = EPixelFormat.PF_B8G8R8A8;
                 break;
             case EPixelFormat.PF_BC6H:
                 if (UseAssetRipperTextureDecoder)
-                {
                     Bc6h.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, false, out data);
-                    colorType = EPixelFormat.PF_B8G8R8A8;
-                }
                 else
-                {
-                    // BC6H doesn't work no matter the pixel format, the closest we can get is either
-                    // Rgb565 DETEX_PIXEL_FORMAT_FLOAT_RGBX16 or Rgb565 DETEX_PIXEL_FORMAT_FLOAT_BGRX16
-                    data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY, true, DetexTextureFormat.DETEX_TEXTURE_FORMAT_BPTC_FLOAT, DetexPixelFormat.DETEX_PIXEL_FORMAT_FLOAT_RGBX16);
-                    colorType = EPixelFormat.PF_FloatRGBA; //TODO idk
-                }
+                    data = BCDecoder.BC6H(bytes, sizeX, sizeY, sizeZ);
+                colorType = EPixelFormat.PF_R8G8B8A8;
+                break;
+            case EPixelFormat.PF_BC6H_Signed:
+                Bc6h.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, true, out data);
+                colorType = EPixelFormat.PF_R8G8B8A8;
                 break;
             case EPixelFormat.PF_BC7:
-                if (UseAssetRipperTextureDecoder)
+                if (UseAssetRipperTextureDecoder || !IsWindows)
+                {
                     Bc7.Decompress<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                    colorType = EPixelFormat.PF_R8G8B8A8;
+                }
                 else
+                {
                     data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY * sizeZ, false, DetexTextureFormat.DETEX_TEXTURE_FORMAT_BPTC, DetexPixelFormat.DETEX_PIXEL_FORMAT_BGRA8);
-                colorType = EPixelFormat.PF_B8G8R8A8;
+                    colorType = EPixelFormat.PF_B8G8R8A8;
+                }
                 break;
             case EPixelFormat.PF_ETC1:
-                data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY, false, DetexTextureFormat.DETEX_TEXTURE_FORMAT_ETC1, DetexPixelFormat.DETEX_PIXEL_FORMAT_BGRA8);
-                colorType = EPixelFormat.PF_B8G8R8A8;
+                if (UseAssetRipperTextureDecoder || !IsWindows)
+                {
+                    EtcDecoder.DecompressETC<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                    colorType = EPixelFormat.PF_R8G8B8A8;
+                }
+                else
+                {
+                    data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY, false, DetexTextureFormat.DETEX_TEXTURE_FORMAT_ETC1, DetexPixelFormat.DETEX_PIXEL_FORMAT_BGRA8);
+                    colorType = EPixelFormat.PF_B8G8R8A8;
+                }
                 break;
             case EPixelFormat.PF_ETC2_RGB:
-                data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY, false, DetexTextureFormat.DETEX_TEXTURE_FORMAT_ETC2, DetexPixelFormat.DETEX_PIXEL_FORMAT_BGRA8);
-                colorType = EPixelFormat.PF_B8G8R8A8;
+                if (UseAssetRipperTextureDecoder || !IsWindows)
+                {
+                    EtcDecoder.DecompressETC2<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                    colorType = EPixelFormat.PF_R8G8B8A8;
+                }
+                else
+                {
+                    data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY, false, DetexTextureFormat.DETEX_TEXTURE_FORMAT_ETC2, DetexPixelFormat.DETEX_PIXEL_FORMAT_BGRA8);
+                    colorType = EPixelFormat.PF_B8G8R8A8;
+                }
                 break;
             case EPixelFormat.PF_ETC2_RGBA:
-                data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY, false, DetexTextureFormat.DETEX_TEXTURE_FORMAT_ETC2_EAC, DetexPixelFormat.DETEX_PIXEL_FORMAT_BGRA8);
+                if (UseAssetRipperTextureDecoder || !IsWindows)
+                {
+                    EtcDecoder.DecompressETC2A8<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                    colorType = EPixelFormat.PF_R8G8B8A8;
+                }
+                else
+                {
+                    data = DetexHelper.DecodeDetexLinear(bytes, sizeX, sizeY, false, DetexTextureFormat.DETEX_TEXTURE_FORMAT_ETC2_EAC, DetexPixelFormat.DETEX_PIXEL_FORMAT_BGRA8);
+                    colorType = EPixelFormat.PF_B8G8R8A8;
+                }
+                break;
+            case EPixelFormat.PF_ETC2_R11:
+            case EPixelFormat.PF_ETC2_R11_EAC:
+                if (UseAssetRipperTextureDecoder)
+                {
+                    EtcDecoder.DecompressEACRUnsigned<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                    colorType = EPixelFormat.PF_R8G8B8A8;
+                }
+                else
+                {
+                    data = EacDecoder.DecodeR11(bytes, sizeX, sizeY);
+                    colorType = EPixelFormat.PF_B8G8R8A8;
+                }
+                break;
+            case EPixelFormat.PF_ETC2_RG11_EAC:
+                EtcDecoder.DecompressEACRGUnsigned<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, out data);
+                colorType = EPixelFormat.PF_R8G8B8A8;
+                break;
+            // Uses AssetRipper since depth data doesn't exist
+            // If this format is used in any UE4/UE5, then switch to the different decoder
+            case EPixelFormat.PF_PVRTC2:
+                PvrtcDecoder.DecompressPVRTC<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, true, out data);
+                colorType = EPixelFormat.PF_R8G8B8A8;
+                break;
+            case EPixelFormat.PF_PVRTC4:
+                PvrtcDecoder.DecompressPVRTC<ColorRGBA<byte>, byte>(bytes, sizeX, sizeY, false, out data);
+                colorType = EPixelFormat.PF_R8G8B8A8;
+                break;
+            case EPixelFormat.PF_B4G4R4A4:
+                data = CustomFormatDecoder.B4G4R4A4(bytes, sizeX, sizeY, sizeZ);
                 colorType = EPixelFormat.PF_B8G8R8A8;
                 break;
 
@@ -461,5 +517,12 @@ public static class TextureDecoder
             default:
                 throw new NotImplementedException($"Unknown pixel format: {formatInfo.UnrealFormat}");
         }
+    }
+
+    private static int GetBytesPerPixel(EPixelFormat pixelFormat)
+    {
+        var formatKvp = PixelFormatUtils.PixelFormats.ElementAtOrDefault((int) pixelFormat)!;
+        var formatInfo = formatKvp.Value;
+        return formatInfo.BlockBytes / (formatInfo.BlockSizeX * formatInfo.BlockSizeY * formatInfo.BlockSizeZ);
     }
 }

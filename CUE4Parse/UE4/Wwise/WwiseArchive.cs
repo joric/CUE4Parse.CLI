@@ -1,13 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
 
 namespace CUE4Parse.UE4.Wwise;
 
-public sealed class FWwiseArchive(FArchive archive) : FArchive(archive.Versions)
+public sealed class FWwiseArchive(FArchive Ar) : FArchive(Ar.Versions)
 {
     /// <summary>
     /// Wwise version, read from the BankHeader section of the .bnk file
@@ -15,31 +12,37 @@ public sealed class FWwiseArchive(FArchive archive) : FArchive(archive.Versions)
     /// </summary>
     public uint Version;
 
+    /// <summary>
+    /// Read from BankHeader section of the .bnk file
+    /// Only relevant for versions <= 126
+    /// </summary>
+    public bool HasFeedback;
+
     public FWwiseArchive(string name, byte[] data, VersionContainer? versions = null) : this(new FByteArchive(name, data, versions)) { }
 
-    public override int Read(byte[] buffer, int offset, int count) => archive.Read(buffer, offset, count);
-    public override long Seek(long offset, SeekOrigin origin) => archive.Seek(offset, origin);
-    public override void SetLength(long value) => archive.SetLength(value);
-    public override void Write(byte[] buffer, int offset, int count) => archive.Write(buffer, offset, count);
-    public override void Flush() => archive.Flush();
+    public override int Read(byte[] buffer, int offset, int count) => Ar.Read(buffer, offset, count);
+    public override long Seek(long offset, SeekOrigin origin) => Ar.Seek(offset, origin);
+    public override void SetLength(long value) => Ar.SetLength(value);
+    public override void Write(byte[] buffer, int offset, int count) => Ar.Write(buffer, offset, count);
+    public override void Flush() => Ar.Flush();
 
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
         if (disposing)
-            archive.Dispose();
+            Ar.Dispose();
     }
 
-    public override string Name => archive.Name;
-    public override long Length => archive.Length;
-    public override bool CanSeek => archive.CanSeek;
+    public override string Name => Ar.Name;
+    public override long Length => Ar.Length;
+    public override bool CanSeek => Ar.CanSeek;
     public override long Position
     {
-        get => archive.Position;
-        set => archive.Position = value;
+        get => Ar.Position;
+        set => Ar.Position = value;
     }
 
-    public override object Clone() => new FWwiseArchive(archive) { Version = Version };
+    public override object Clone() => new FWwiseArchive(Ar) { Version = Version };
 
     public bool IsSupported() => WwiseVersionInfo.IsSupported(Version);
 
@@ -78,4 +81,6 @@ public sealed class FWwiseArchive(FArchive archive) : FArchive(archive.Versions)
 
         return value;
     }
+
+    public bool ReadBool() => Ar.Read<byte>() != 0;
 }

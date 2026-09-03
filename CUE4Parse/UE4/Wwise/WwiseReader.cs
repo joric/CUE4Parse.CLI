@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Text;
 using CUE4Parse.FileProvider.Objects;
 using CUE4Parse.UE4.Assets.Objects;
@@ -10,7 +8,6 @@ using CUE4Parse.UE4.Wwise.Enums;
 using CUE4Parse.UE4.Wwise.Objects;
 using CUE4Parse.UE4.Wwise.Objects.HIRC;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Wwise;
 
@@ -87,6 +84,11 @@ public class WwiseReader
                         var bank = new WwiseReader(Ar, _source, entry.Size) { Path = entry.AudioPath };
                         LoadedSize += bank.LoadedSize;
                         AKPKBankEntries.Add(bank);
+
+                        foreach (var embeddedWem in bank.WwiseEncodedMedias)
+                        {
+                            WwiseEncodedMedias[embeddedWem.Key] = embeddedWem.Value;
+                        }
                     }
 
                     foreach (var entry in AKPKWemEntries)
@@ -103,9 +105,10 @@ public class WwiseReader
                     Header = new AkBankHeader(Ar, sectionLength);
 
                     Ar.Version = Header.Version;
+                    Ar.HasFeedback = Header.FeedbackInBank;
 
                     if (!Ar.IsSupported())
-                        Log.Warning($"Wwise version {Ar.Version} is not supported");
+                        Log.Warning("Wwise version {Version} is not supported", Ar.Version);
                     break;
                 case EChunkID.BankInit:
                     LoadedSize += sectionLength;
@@ -171,7 +174,7 @@ public class WwiseReader
                     // For example: ADM3 codec (Crankcase Audio), AK Convolution Reverb impulse response (currently not supported https://github.com/vgmstream/vgmstream/issues/1638)
                     Ar.Position -= 8;
 #if DEBUG
-                    Log.Debug($"Found Wwise plugin section with length {sectionLength}");
+                    Log.Debug("Found Wwise plugin section with length {SectionLength}", sectionLength);
 #endif
                     WemFile = ReadDeferredByteData(Ar, _source, Ar.Position, 8 + sectionLength);
                     LoadedSize += WemFile.LoadedSize;
@@ -184,7 +187,7 @@ public class WwiseReader
                     break;
                 default:
 #if DEBUG
-                    Log.Warning($"Unknown section {sectionIdentifier:X} at {position - sizeof(uint) - sizeof(uint)}");
+                    Log.Warning("Unknown section {SectionIdentifier:X} at {Position}", sectionIdentifier, position - sizeof(uint) - sizeof(uint));
 #endif
                     break;
             }
@@ -193,7 +196,7 @@ public class WwiseReader
             {
                 var shouldBe = position + sectionLength;
 #if DEBUG
-                Log.Warning($"Didn't read {sectionIdentifier} correctly (at {Ar.Position}, should be {shouldBe})");
+                Log.Warning("Didn't read {SectionIdentifier} correctly (at {Position}, should be {ExpectedPosition})", sectionIdentifier, Ar.Position, shouldBe);
 #endif
                 Ar.Position = shouldBe;
             }

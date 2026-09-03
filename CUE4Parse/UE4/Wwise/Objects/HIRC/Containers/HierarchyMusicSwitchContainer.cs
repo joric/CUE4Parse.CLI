@@ -8,7 +8,14 @@ public class HierarchyMusicSwitchContainer : BaseHierarchyMusic
     public readonly AkMeterInfo MeterInfo;
     public readonly AkStinger[] Stingers;
     public readonly AkMusicTransitionRule MusicTransitionRule;
-    public readonly byte IsContinuePlayback;
+
+    public readonly EAkGroupType GroupType;
+    public readonly uint GroupId;
+    public readonly uint DefaultSwitch;
+    public readonly bool IsContinuousValidation;
+    public readonly AkMusicSwitchAssoc[] MusicSwitchAssoc = [];
+
+    public readonly bool IsContinuePlayback;
     public readonly AkGameSync[] Arguments = [];
     public readonly EAkDecisionTreeMode Mode;
     public readonly AkDecisionTree DecisionTree;
@@ -24,17 +31,21 @@ public class HierarchyMusicSwitchContainer : BaseHierarchyMusic
         if (Ar.Version <= 72)
         {
             DecisionTree = new AkDecisionTree(); // Empty tree for old versions
+            GroupType = (EAkGroupType) Ar.Read<uint>();
+            GroupId = Ar.Read<uint>();
+            DefaultSwitch = Ar.Read<uint>();
+            IsContinuousValidation = Ar.ReadBool();
+            MusicSwitchAssoc = Ar.ReadArray(() => new AkMusicSwitchAssoc(Ar));
         }
         else
         {
-            IsContinuePlayback = Ar.Read<byte>();
+            IsContinuePlayback = Ar.ReadBool();
 
             var treeDepth = Ar.Read<uint>();
             Arguments = AkGameSync.ReadSequential(Ar, treeDepth);
 
             var treeDataSize = Ar.Read<uint>();
             Mode = Ar.Read<EAkDecisionTreeMode>();
-
             DecisionTree = new AkDecisionTree(Ar, treeDepth, treeDataSize);
         }
     }
@@ -54,6 +65,24 @@ public class HierarchyMusicSwitchContainer : BaseHierarchyMusic
         writer.WritePropertyName(nameof(MusicTransitionRule));
         serializer.Serialize(writer, MusicTransitionRule.Rules);
 
+        if (WwiseConverter.WwiseVersion.Value <= 72)
+        {
+            writer.WritePropertyName(nameof(GroupType));
+            writer.WriteValue(GroupType.ToString());
+
+            writer.WritePropertyName(nameof(GroupId));
+            writer.WriteValue(GroupId);
+
+            writer.WritePropertyName(nameof(DefaultSwitch));
+            writer.WriteValue(DefaultSwitch);
+
+            writer.WritePropertyName(nameof(IsContinuousValidation));
+            writer.WriteValue(IsContinuousValidation);
+
+            writer.WritePropertyName(nameof(MusicSwitchAssoc));
+            serializer.Serialize(writer, MusicSwitchAssoc);
+        }
+
         writer.WritePropertyName(nameof(IsContinuePlayback));
         serializer.Serialize(writer, IsContinuePlayback);
 
@@ -63,8 +92,11 @@ public class HierarchyMusicSwitchContainer : BaseHierarchyMusic
         writer.WritePropertyName(nameof(Arguments));
         serializer.Serialize(writer, Arguments);
 
-        writer.WritePropertyName(nameof(DecisionTree));
-        serializer.Serialize(writer, DecisionTree);
+        if (WwiseConverter.WwiseVersion.Value > 72)
+        {
+            writer.WritePropertyName(nameof(DecisionTree));
+            serializer.Serialize(writer, DecisionTree);
+        }
 
         writer.WriteEndObject();
     }

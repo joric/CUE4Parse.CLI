@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Assets.Exports;
@@ -12,13 +9,13 @@ using CUE4Parse.UE4.Objects.UObject.Editor;
 using CUE4Parse.UE4.Versions;
 using CUE4Parse.Utils;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Objects.UObject;
 
 [SkipObjectRegistration]
 public class UClass : UStruct
 {
+    
     /** Used to check if the class was cooked or not */
     public bool bCooked;
 
@@ -50,12 +47,12 @@ public class UClass : UStruct
     {
         base.Deserialize(Ar, validPos);
 
-        if (Ar.Game == EGame.GAME_AWayOut) Ar.Position += 4;
+        if (Ar.Game == GAME_AWayOut) Ar.Position += 4;
 
         FuncMap = Ar.ReadMap(Ar.ReadFName, () => new FPackageIndex(Ar));
         ClassFlags = Ar.Read<EClassFlags>();
 
-        if (Ar.Game is EGame.GAME_StarWarsJediFallenOrder or EGame.GAME_StarWarsJediSurvivor or EGame.GAME_AshesOfCreation) Ar.Position += 4;
+        if (Ar.Game is GAME_StarWarsJediFallenOrder or GAME_StarWarsJediSurvivor or GAME_AshesOfCreation) Ar.Position += 4;
 
         ClassWithin = new FPackageIndex(Ar);
         ClassConfigName = Ar.ReadFName();
@@ -71,7 +68,7 @@ public class UClass : UStruct
         }
 
         ClassDefaultObject = new FPackageIndex(Ar);
-        if (Ar.Game == EGame.GAME_Borderlands4) _ = Ar.ReadMap(Ar.Read<ulong>, Ar.Read<int>);
+        if (Ar.Game == GAME_Borderlands4) _ = Ar.ReadMap(Ar.Read<ulong>, Ar.Read<int>);
     }
 
     public Assets.Exports.UObject? ConstructObject(EObjectFlags flags)
@@ -105,9 +102,9 @@ public class UClass : UStruct
         return null;
     }
 
-    public string DecompileBlueprintToPseudo(TypeMappings mappings, UClassCookedMetaData? cookedMetaData = null)
+    public string DecompileBlueprintToPseudo(UClassCookedMetaData? cookedMetaData = null)
     {
-        BlueprintDecompilerUtils.Mappings = mappings;
+        BlueprintDecompilerUtils.Mappings = this.Owner.Mappings;
         var derivedClass = BlueprintDecompilerUtils.GetClassWithPrefix(this);
         var baseClass = BlueprintDecompilerUtils.GetClassWithPrefix(SuperStruct.Load<UStruct>());
         var accessSpecifier = Flags.HasFlag(EObjectFlags.RF_Public) ? "public" : "private";
@@ -400,8 +397,11 @@ public class UClass : UStruct
         /** the interface class */
         public FPackageIndex Class;
 
+        /** the pointer property that is located at the offset of the interface's vtable */
+        public FPackageIndex? PointerProperty;
+
         /** the pointer offset of the interface's vtable */
-        public int PointerOffset;
+        public int? PointerOffset;
 
         /** whether this interface has been implemented via K2 */
         public bool bImplementedByK2;
@@ -409,7 +409,14 @@ public class UClass : UStruct
         public FImplementedInterface(FAssetArchive Ar)
         {
             Class = new FPackageIndex(Ar);
-            PointerOffset = Ar.Read<int>();
+            if (Ar.Ver < EUnrealEngineObjectUE4Version.NO_INTERFACE_PROPERTY)
+            {
+                PointerProperty = new FPackageIndex(Ar);
+            }
+            else
+            {
+                PointerOffset = Ar.Read<int>();
+            }
             bImplementedByK2 = Ar.ReadBoolean();
         }
     }

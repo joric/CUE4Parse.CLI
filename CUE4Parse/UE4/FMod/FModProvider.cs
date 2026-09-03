@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using CUE4Parse.FileProvider;
@@ -13,7 +9,6 @@ using CUE4Parse.UE4.FMod.Utils;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.Utils;
 using Fmod5Sharp.FmodTypes;
-using Serilog;
 using UE4Config.Parsing;
 
 namespace CUE4Parse.UE4.FMod;
@@ -29,6 +24,7 @@ public class FModExtractedSound
 
 public class FModProvider
 {
+    
     private Dictionary<FModGuid, List<FmodSample>> _resolvedEventsCache = [];
     private Dictionary<FModGuid, bool> _eventResolutionStatus = [];
     private Dictionary<FModGuid, FModGuid> _eventToReaderMap = [];
@@ -175,7 +171,7 @@ public class FModProvider
         if (!string.IsNullOrEmpty(token?.Value))
         {
             _encryptionKey = Encoding.UTF8.GetBytes(Regex.Unescape(token.Value.Trim('"')));
-            Log.Information($"FMod encryption key found: {token.Value}");
+            Log.Information("FMod encryption key found: {EncryptionKey}", token.Value);
         }
         else
         {
@@ -275,7 +271,7 @@ public class FModProvider
         => ExtractAudioSamples(fmodReader.ExtractSoundTableTracks(), fmodReader.BankName);
     public List<FModExtractedSound> ExtractBankSounds(FModReader fmodReader)
        => ExtractAudioSamples(fmodReader.ExtractTracks(), fmodReader.BankName);
-    
+
     private List<FModExtractedSound> ExtractAudioSamples(List<FmodSample> samples, string fallbackSampleName)
     {
         var extracted = new List<FModExtractedSound>(samples.Count);

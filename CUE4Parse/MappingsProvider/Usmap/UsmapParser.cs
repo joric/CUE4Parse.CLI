@@ -1,3 +1,4 @@
+using System.Text;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.Core.Serialization;
 using CUE4Parse.UE4.Readers;
@@ -23,6 +24,9 @@ public class UsmapParser
 
     public UsmapParser(FArchive archive, StringComparer? comparer = null)
     {
+        if (archive.Length < 2)
+            throw new ParserException("Usmap is empty");
+
         var magic = archive.Read<ushort>();
         if (magic != FileMagic)
             throw new ParserException("Usmap has invalid magic");
@@ -79,7 +83,7 @@ public class UsmapParser
         for (var i = 0; i < nameSize; i++)
         {
             var nameLength = Ar.Version >= EUsmapVersion.LongFName ? Ar.Read<ushort>() : Ar.Read<byte>();
-            nameLut.Add(Ar.ReadStringUnsafe(nameLength));
+            nameLut.Add(Encoding.UTF8.GetString(Ar.ReadBytes(nameLength)));
         }
 
         var enumCount = Ar.Read<uint>();
@@ -97,7 +101,7 @@ public class UsmapParser
                 {
                     var value = Ar.Read<ulong>();
                     var name = Ar.ReadName(nameLut)!;
-                    enumNames[(int)value] = name;
+                    enumNames[(long)value] = name;
                 }
             }
             else

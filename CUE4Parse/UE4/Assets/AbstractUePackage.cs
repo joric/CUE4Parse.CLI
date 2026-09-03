@@ -1,8 +1,6 @@
-using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading.Tasks;
 using CUE4Parse.FileProvider;
 using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.Assets.Exports;
@@ -10,13 +8,13 @@ using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.UObject;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Assets;
 
 [JsonConverter(typeof(PackageConverter))]
 public abstract class AbstractUePackage : UObject, IPackage
 {
+    
     public IFileProvider? Provider { get; }
     public TypeMappings? Mappings => Provider?.MappingsForGame;
 
@@ -84,6 +82,7 @@ public abstract class AbstractUePackage : UObject, IPackage
         var validPos = serialOffset + serialSize;
         try
         {
+            if (serialSize == 0) return; // Empty Export
             obj.Deserialize(Ar, validPos);
 #if DEBUG
             var remaining = validPos - Ar.Position;
@@ -105,9 +104,9 @@ public abstract class AbstractUePackage : UObject, IPackage
         {
             if (Globals.FatalObjectSerializationErrors)
             {
-                throw new ParserException($"Could not read {obj.ExportType} correctly", e);
+                throw new ParserException($"Could not read {obj.ExportType} named {obj.Name} correctly", e);
             }
-            Log.Error(e, "Could not read {0} correctly", obj.ExportType);
+            Log.Error(e, "Could not read {0} named {1} correctly", obj.ExportType, obj.Name);
         }
     }
 

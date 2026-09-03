@@ -1,4 +1,3 @@
-using System;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -79,7 +78,7 @@ namespace CUE4Parse.UE4.IO.Objects
 
         public string GetExtension(IAesVfsReader reader)
         {
-            var type = reader.Game >= EGame.GAME_UE5_0 ? typeof(EIoChunkType5) : typeof(EIoChunkType);
+            var type = reader.Game >= GAME_UE5_0 ? typeof(EIoChunkType5) : typeof(EIoChunkType);
             if (Enum.ToObject(type, ChunkType).ToString() is not { } chunkType)
                 return ChunkType.ToString();
 

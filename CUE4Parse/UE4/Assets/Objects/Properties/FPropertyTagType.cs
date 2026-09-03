@@ -1,6 +1,4 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Reflection;
 using CUE4Parse.GameTypes.Borderlands4.Assets.Objects.Properties;
 using CUE4Parse.GameTypes.FN.Assets.Exports;
@@ -13,7 +11,6 @@ using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
 using CUE4Parse.Utils;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Assets.Objects.Properties;
 
@@ -85,10 +82,37 @@ public abstract class FPropertyTagType
                 var idx = Array.FindIndex(values, it => it == search);
                 return idx == -1 ? null : type.GetEnumValues().GetValue(idx);
             //TODO There are also Enums stored as ByteProperty but UModel uses them nowhere besides in UE2
-            //TODO Maybe Maps?
+            case FPropertyTagType<UScriptMap> mapProp when type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>):
+                return CreateDictionary(type, mapProp.Value!.Properties);
+            case OptionalProperty optionalProperty:
+                return optionalProperty.Value?.GetValue(type);
+            case AssetObjectProperty assetObjectProp when typeof(FSoftObjectPath).IsAssignableFrom(type):
+                var str = assetObjectProp.Value;
+                if (str is null or "None") return new FSoftObjectPath();
+                var index = str.LastIndexOf('.');
+                var (path, substring) = index == -1 ? (str, "") : (str[..index], str[(index+1)..]);
+                return new FSoftObjectPath(path, substring, assetObjectProp.Owner);
             default:
+                Log.Warning("Incorrect type conversion from {0} to {1}", this, type);
                 return null;
         }
+    }
+
+    private IDictionary CreateDictionary(Type type, Dictionary<FPropertyTagType, FPropertyTagType?> properties)
+    {
+        var typeArgs = type.GetGenericArguments();
+        var keyType = typeArgs[0];
+        var valueType = typeArgs[1];
+        var dictType = typeof(Dictionary<,>).MakeGenericType(keyType, valueType);
+        var result = (IDictionary) Activator.CreateInstance(dictType, properties.Count)!;
+        foreach (var kv in properties)
+        {
+            var key = kv.Key.GetValue(keyType);
+            if (key == null) continue;
+            var value = kv.Value?.GetValue(valueType);
+            result[key] = value;
+        }
+        return result;
     }
 
     private Array CreateArray(Type type, List<FPropertyTagType> properties)
@@ -126,10 +150,9 @@ public abstract class FPropertyTagType
         var tagType = propertyType switch
         {
             "ArrayProperty" => new ArrayProperty(Ar, tagData, type, size),
-            "AssetObjectProperty" => new AssetObjectProperty(Ar, type),
-            "AssetClassProperty" => new AssetObjectProperty(Ar, type),
+            "AssetObjectProperty" or "AssetClassProperty" => new AssetObjectProperty(Ar, type),
             "BoolProperty" => new BoolProperty(Ar, tagData, type),
-            "ByteProperty" => (tagData?.EnumName != null && !tagData.EnumName.Equals("None", StringComparison.OrdinalIgnoreCase)) || (type is ReadType.MAP && Ar.TestReadFName())
+            "ByteProperty" => (tagData?.EnumName != null && !tagData.EnumName.Equals("None", StringComparison.OrdinalIgnoreCase)) || (type is ReadType.MAP && Ar.TestReadFName()) || (Ar.Game < GAME_UE4_0 && Ar.Ver > EUnrealEngineObjectUE3Version.PropertyFlagsSizeExpandedTo64Bits && size != 1)
                 ? (FPropertyTagType?) new EnumProperty(Ar, tagData, type)
                 : new ByteProperty(Ar, type),
             "ClassProperty" => new ClassProperty(Ar, type),
@@ -156,9 +179,9 @@ public abstract class FPropertyTagType
                     _ => new ObjectProperty(Ar, type),
                 },
             "SetProperty" => new SetProperty(Ar, tagData, type),
-            "SoftClassProperty" => new SoftObjectProperty(Ar, type),
-            "SoftObjectProperty" => new SoftObjectProperty(Ar, type),
+            "SoftClassProperty" or "SoftObjectProperty" => new SoftObjectProperty(Ar, type),
             "StrProperty" => new StrProperty(Ar, type),
+            "AnsiStrProperty" => new AnsiStrProperty(Ar, type),
             "Utf8StrProperty" => new Utf8StrProperty(Ar, type),
             "StructProperty" => new StructProperty(Ar, tagData, type),
             "TextProperty" => new TextProperty(Ar, type),
@@ -167,13 +190,14 @@ public abstract class FPropertyTagType
             "UInt64Property" => new UInt64Property(Ar, type),
             "WeakObjectProperty" => new WeakObjectProperty(Ar, type),
             "OptionalProperty" => new OptionalProperty(Ar, tagData, type),
+            "ReferenceProperty" => new SoftObjectProperty(Ar, type),
             "VerseStringProperty" => new VerseStringProperty(Ar, type),
-            "VerseFunctionProperty" => new ObjectProperty(Ar, type),
+            "VerseFunctionProperty" => new DelegateProperty(Ar, type),
             "VerseDynamicProperty" => new ObjectProperty(Ar, type), // idk, but for now read as ObjectProperty
             "VerseClassProperty" => new VerseClassProperty(Ar, type),
 
-            "CustomProperty_FD" or "GbxDefPtrProperty" when Ar.Game == EGame.GAME_Borderlands4 => new GbxDefPtrProperty(Ar, type),
-            "CustomProperty_FE" or "GameDataHandleProperty" when Ar.Game == EGame.GAME_Borderlands4 => new GameDataHandleProperty(Ar, type),
+            "CustomProperty_FD" or "GbxDefPtrProperty" when Ar.Game == GAME_Borderlands4 => new GbxDefPtrProperty(Ar, type),
+            "CustomProperty_FE" or "GameDataHandleProperty" when Ar.Game == GAME_Borderlands4 => new GameDataHandleProperty(Ar, type),
 
             _ => null
         };

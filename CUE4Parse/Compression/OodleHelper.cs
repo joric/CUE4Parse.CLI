@@ -1,11 +1,6 @@
-using System;
-using System.IO;
-using System.IO.Compression;
-using System.Net.Http;
 using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Readers;
@@ -13,7 +8,6 @@ using CUE4Parse.Utils;
 
 using OodleDotNet;
 
-using Serilog;
 
 namespace CUE4Parse.Compression;
 
@@ -25,6 +19,7 @@ public class OodleException : ParserException
 
 public static class OodleHelper
 {
+    
     public const string OODLE_NAME_OLD = "oo2core_9_win64.dll";
     public const string OODLE_NAME_CURRENT = "oodle-data-shared.dll";
     public const string OODLE_NAME_LINUX = "liboodle-data-shared.so";
@@ -150,9 +145,9 @@ public static class OodleHelper
 
     private static string ResolvePath(string? path)
     {
-        return !string.IsNullOrWhiteSpace(path)
+        return Path.GetFullPath(!string.IsNullOrWhiteSpace(path)
             ? path
-            : !OperatingSystem.IsLinux() && File.Exists(OODLE_NAME_OLD) ? OODLE_NAME_OLD : OodleFileName;
+            : !OperatingSystem.IsLinux() && File.Exists(OODLE_NAME_OLD) ? OODLE_NAME_OLD : OodleFileName);
     }
 
     [DoesNotReturn]

@@ -19,7 +19,7 @@ public class AActor : UObject
         // not sure why, but very rarely it overreads for CDO, maybe related to SparseClassDataStructSerialization
         // doesn't matter so return early in this case
         if (Ar.Position >= validPos) return;
-        if (Ar.Game == EGame.GAME_WorldofJadeDynasty) Ar.Position += 24;
+        if (Ar.Game == GAME_WorldofJadeDynasty) Ar.Position += 24;
         if (FUE5SpecialProjectStreamObjectVersion.Get(Ar) >= FUE5SpecialProjectStreamObjectVersion.Type.SerializeActorLabelInCookedBuilds)
         {
             bIsCooked = Ar.ReadBoolean();
@@ -268,6 +268,18 @@ public class AOnlineBeaconClient : AOnlineBeacon;
 public class AOnlineBeaconHost : AOnlineBeacon;
 public class AOnlineBeaconHostObject : AActor;
 public class APackedLevelActor : ALevelInstance;
+
+public class APrefabInstance : AActor
+{
+    public override void Deserialize(FAssetArchive Ar, long validPos)
+    {
+        base.Deserialize(Ar, validPos);
+
+        Ar.ReadMap(() => new FPackageIndex(Ar), () => new FPackageIndex(Ar)); // ArchetypeToInstanceMap
+        Ar.ReadMap(() => new FPackageIndex(Ar), Ar.Read<int>); // PI_ObjectMap
+    }
+}
+
 public class APackedLevelInstance : APackedLevelActor;
 public class APainCausingVolume : APhysicsVolume;
 public class APaperCharacter : ACharacter;
@@ -356,7 +368,12 @@ public class ASpotLight : ALight;
 public class ASpotLightMovable : ASpotLight;
 public class ASpotLightStatic : ASpotLight;
 public class ASpotLightStationary : ASpotLight;
+public class AStaticMeshActorBase : AActor;
 public class AStaticMeshActor : AActor;
+
+public class AStaticMeshCollectionActor : AStaticMeshActorBase;
+public class AStaticLightCollectionActor : ALight;
+
 public class ASwitchActor : AActor;
 public class ATagCollectionModifierSharedActor : AActorModifierCoreSharedActor;
 public class ATargetPoint : AActor;
@@ -421,13 +438,15 @@ public class AWorldPartitionReplay : AActor;
 public class AWorldPartitionVolume : AVolume;
 public class AWorldSettings : AInfo
 {
-    public FPackageIndex WorldPartition;
+    public FPackageIndex? WorldPartition { get; private set; }
+    public FPackageIndex[]? StreamingLevels { get; private set; }
 
     public override void Deserialize(FAssetArchive Ar, long validPos)
     {
-        if (Ar.Game == EGame.GAME_WorldofJadeDynasty) Ar.Position += 20;
+        if (Ar.Game == GAME_WorldofJadeDynasty) Ar.Position += 20;
         base.Deserialize(Ar, validPos);
 
-        WorldPartition = GetOrDefault(nameof(WorldPartition), new FPackageIndex());
+        WorldPartition = GetOrDefault<FPackageIndex?>(nameof(WorldPartition));
+        StreamingLevels = GetOrDefault<FPackageIndex[]?>(nameof(StreamingLevels));
     }
 }

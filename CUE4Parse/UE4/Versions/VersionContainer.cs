@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Objects.Core.Serialization;
@@ -31,20 +29,18 @@ namespace CUE4Parse.UE4.Versions
             {
                 bExplicitVer = value.FileVersionUE3 != 0 || value.FileVersionUE4 != 0 || value.FileVersionUE5 != 0;
                 _ver = bExplicitVer ? value : _game.GetVersion();
+                InitOptions();
             }
         }
 
-        private ETexturePlatform _platform;
-        public ETexturePlatform Platform
+        private EUnrealEngineObjectLicenseeUEVersion _licenseever;
+        public EUnrealEngineObjectLicenseeUEVersion LicenseeVer
         {
-            get => _platform;
-            set
-            {
-                _platform = value;
-                InitOptions();
-                InitMapStructTypes();
-            }
+            get => _licenseever;
+            set => _licenseever = value;
         }
+
+        public ETexturePlatform Platform { get; set; }
 
         public bool bExplicitVer { get; private set; }
 
@@ -60,10 +56,12 @@ namespace CUE4Parse.UE4.Versions
             _optionOverrides = optionOverrides;
             _mapStructTypesOverrides = mapStructTypesOverrides;
 
-            Game = game;
-            Ver = ver;
+            _game = game; // bypass InitOptions + InitMapStructTypes
+            Ver = ver; // triggers InitOptions for the first time and uses the updated _game.GetVersion()
             Platform = platform;
             CustomVersions = customVersions;
+
+            InitMapStructTypes(); // because it was not triggered by any setter
         }
 
         private void InitOptions()
@@ -77,13 +75,13 @@ namespace CUE4Parse.UE4.Versions
             Options["Vector_NetQuantize_AsStruct"] = Game >= GAME_UE5_0;
 
             // fields
-            Options["RawIndexBuffer.HasShouldExpandTo32Bit"] = Game >= GAME_UE4_25 && Game != GAME_DeltaForce;
+            Options["RawIndexBuffer.HasShouldExpandTo32Bit"] = Game is >= GAME_UE4_25 and not GAME_DeltaForce and not GAME_ArenaBreakoutMobile;
             Options["ShaderMap.UseNewCookedFormat"] = Game >= GAME_UE5_0;
             Options["SkeletalMesh.UseNewCookedFormat"] = Game >= GAME_UE4_24;
             Options["SkeletalMesh.HasRayTracingData"] = Game is >= GAME_UE4_27 or GAME_UE4_25_Plus;
             Options["StaticMesh.HasLODsShareStaticLighting"] = Game is < GAME_UE4_15 or >= GAME_UE4_16; // Exists in all engine versions except UE4.15
             Options["StaticMesh.HasRayTracingGeometry"] = Game >= GAME_UE4_25;
-            Options["StaticMesh.HasVisibleInRayTracing"] = Game >= GAME_UE4_26;
+            Options["StaticMesh.HasVisibleInRayTracing"] = Game >= GAME_UE4_26 || Game is GAME_Back4Blood;
             Options["StaticMesh.UseNewCookedFormat"] = Game >= GAME_UE4_23;
             Options["VirtualTextures"] = Game >= GAME_UE4_23;
             Options["SoundWave.UseAudioStreaming"] = Game >= GAME_UE4_25 && OverrideUseAudioStreaming(); // A lot of games use this, but some don't, which causes issues.

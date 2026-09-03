@@ -1,7 +1,6 @@
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Readers;
-using CUE4Parse.UE4.Versions;
 
 namespace CUE4Parse.UE4.Assets.Exports.FastGeoStreaming;
 
@@ -38,7 +37,7 @@ public class FPrimitiveSceneProxyDesc(FArchive Ar)
     public bool bVisibleInReflectionCaptures = Ar.ReadBoolean();
     public bool bVisibleInRealTimeSkyCaptures = Ar.ReadBoolean();
     public bool bVisibleInRayTracing = Ar.ReadBoolean();
-    public bool bVisibleInReflections = Ar.Game >= EGame.GAME_UE5_8 && Ar.ReadBoolean();
+    public bool bVisibleInReflections = Ar.Game >= GAME_UE5_8 && Ar.ReadBoolean();
     public bool bRenderInDepthPass = Ar.ReadBoolean();
     public bool bRenderInMainPass = Ar.ReadBoolean();
     public bool bTreatAsBackgroundForOcclusion = Ar.ReadBoolean();
@@ -159,14 +158,24 @@ public class FStaticMeshSceneProxyDesc
     public FStaticMeshSceneProxyDesc(FFastGeoArchive Ar)
     {
         StaticMesh = Ar.ReadFPackageIndex();
-        if (Ar.Game is EGame.GAME_WutheringWavesFastGeo)
+        if (Ar.Game is GAME_WutheringWaves)
         {
-            Ar.Position += 68;
+            Ar.Position += 84;
             return;
         }
-        MeshPaintTexture = Ar.Game >= EGame.GAME_UE5_8 ? Ar.ReadFPackageIndex() : new FPackageIndex();
+        else if (Ar.Game is GAME_SilverPalace)
+        {
+            Ar.Position += 92;
+            return;
+        }
+        MeshPaintTexture = Ar.Game is >= GAME_UE5_8 or GAME_GearsofWarEDay ? Ar.ReadFPackageIndex() : new FPackageIndex();
         OverlayMaterial = Ar.ReadFPackageIndex();
         MaterialSlotsOverlayMaterial = Ar.ReadArray(Ar.ReadFPackageIndex);
+        if (Ar.Game is GAME_GearsofWarEDay)
+        {
+            Ar.Position += 84;
+            return;
+        }
         OverlayMaterialMaxDrawDistance = Ar.Read<float>();
         ForcedLodModel = Ar.Read<int>();
         MinLOD = Ar.Read<int>();
@@ -175,7 +184,7 @@ public class FStaticMeshSceneProxyDesc
         DistanceFieldSelfShadowBias = Ar.Read<float>();
         DistanceFieldIndirectShadowMinVisibility = Ar.Read<float>();
         StaticLightMapResolution = Ar.Read<int>();
-        MeshPaintTextureCoordinateIndex = Ar.Game >= EGame.GAME_UE5_8 ? Ar.Read<int>() : 0;
+        MeshPaintTextureCoordinateIndex = Ar.Game >= GAME_UE5_8 ? Ar.Read<int>() : 0;
         bReverseCulling = Ar.ReadBoolean();
         bEvaluateWorldPositionOffset = Ar.ReadBoolean();
         bOverrideMinLOD = Ar.ReadBoolean();

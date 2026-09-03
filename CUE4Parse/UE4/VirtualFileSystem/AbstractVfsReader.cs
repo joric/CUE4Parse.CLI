@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Runtime.CompilerServices;
 using CUE4Parse.FileProvider.Objects;
 using CUE4Parse.UE4.Assets.Objects;
@@ -8,13 +5,11 @@ using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
 using CUE4Parse.Utils;
 using GenericReader;
-using Serilog;
 
 namespace CUE4Parse.UE4.VirtualFileSystem
 {
     public abstract partial class AbstractVfsReader : IVfsReader
     {
-        protected static readonly ILogger Log = Serilog.Log.ForContext<AbstractVfsReader>();
 
         public string Path { get; }
         public string Name { get; }
@@ -54,6 +49,11 @@ namespace CUE4Parse.UE4.VirtualFileSystem
         protected void ValidateMountPoint(ref string mountPoint)
         {
             var badMountPoint = !mountPoint.StartsWith("../../..");
+
+            // Hacky fix but works for now
+            if (badMountPoint && Game >= GAME_UE6_0)
+                return;
+
             mountPoint = mountPoint.SubstringAfter("../../..");
             if (mountPoint == "" || mountPoint[0] != '/' || ( (mountPoint.Length > 1) && (mountPoint[1] == '.') ))
                 badMountPoint = true;
@@ -62,7 +62,7 @@ namespace CUE4Parse.UE4.VirtualFileSystem
             {
                 if (Globals.LogVfsMounts)
                 {
-                    Log.Warning($"\"{Name}\" has strange mount point \"{mountPoint}\", mounting to root");
+                    Log.Warning("\"{Name}\" has strange mount point \"{MountPoint}\", mounting to root", Name, mountPoint);
                 }
 
                 mountPoint = "/";

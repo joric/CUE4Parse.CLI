@@ -1,8 +1,6 @@
-using System;
 using System.Runtime.Intrinsics;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Readers;
-using CUE4Parse.UE4.Versions;
 using static CUE4Parse.UE4.Assets.Exports.Nanite.NaniteConstants;
 using static CUE4Parse.UE4.Assets.Exports.Nanite.NaniteUtils;
 
@@ -111,7 +109,7 @@ public class FNaniteVertex
         Attributes.Normal = UnpackNormals(normalBits, (int) cluster.NormalPrecision);
 
         // parse tangent
-        if (Ar.Game >= EGame.GAME_UE5_3)
+        if (Ar.Game >= GAME_UE5_3)
         {
             int numTangentBits = cluster.bHasTangents ? ((int) cluster.TangentPrecision + 1) : 0;
             uint tangentAngleAndSignBits = bitStreamReader.Read(Ar, numTangentBits, NANITE_MAX_TANGENT_QUANTIZATION_BITS + 1);
@@ -149,7 +147,6 @@ public class FNaniteVertex
                 new(bitStreamReader.Read(Ar, (int) uvPrec.X, NANITE_MAX_TEXCOORD_QUANTIZATION_BITS_500),
                     bitStreamReader.Read(Ar, (int) uvPrec.Y, NANITE_MAX_TEXCOORD_QUANTIZATION_BITS_500));
             Attributes.UVs[texCoordIndex] = UnpackTexCoord(UVBits, cluster.UVRanges_Old[texCoordIndex]);
-
         }
     }
 }

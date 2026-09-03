@@ -1,4 +1,5 @@
 using CUE4Parse.UE4.Objects.Core.Math;
+using CUE4Parse.UE4.Objects.Meshes;
 using CUE4Parse.UE4.Objects.RenderCore;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
@@ -7,28 +8,39 @@ using Newtonsoft.Json;
 namespace CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
 
 [JsonConverter(typeof(FSkelMeshVertexBaseConverter))]
-public class FSkelMeshVertexBase
+public abstract class FSkelMeshVertexBase
 {
     public FVector Pos;
     public FPackedNormal[] Normal;
     public FSkinWeightInfo? Infs;
 
-    public FSkelMeshVertexBase()
+    public abstract FMeshUVFloat[] UVs { get; }
+
+    protected FSkelMeshVertexBase()
     {
         Normal = [];
     }
 
-    public void SerializeForGPU(FArchive Ar, bool bExtraBoneInfluences)
+    protected FSkelMeshVertexBase(FVector position, FPackedNormal[] normals, FSkinWeightInfo? infs)
     {
+        Pos = position;
+        Normal = normals;
+        Infs = infs;
+    }
+
+    public void SerializeForGPU(FArchive Ar, bool bExtraBoneInfluences = false)
+    {
+        if (Ar.Ver < EUnrealEngineObjectUE3Version.SKELETAL_MESH_SUPPORT_PACKED_POSITION) Pos = Ar.Read<FVector>();
         Normal = new FPackedNormal[3];
         Normal[0] = new FPackedNormal(Ar);
+        if (Ar.Ver < EUnrealEngineObjectUE3Version.SKELETAL_MESH_REMOVE_BINORMAL_TANGENT_VECTOR) Normal[1] = new FPackedNormal(Ar);
         Normal[2] = new FPackedNormal(Ar);
         if (FSkeletalMeshCustomVersion.Get(Ar) < FSkeletalMeshCustomVersion.Type.UseSeparateSkinWeightBuffer)
         {
             // serialized as separate buffer starting with UE4.15
             Infs = new FSkinWeightInfo(Ar, bExtraBoneInfluences);
         }
-        Pos = Ar.Read<FVector>();
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.SKELETAL_MESH_SUPPORT_PACKED_POSITION) Pos = Ar.Read<FVector>();
     }
 
     public void SerializeForEditor(FArchive Ar)

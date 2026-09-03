@@ -16,12 +16,19 @@ namespace CUE4Parse.UE4.Objects.UObject
         {
             base.Deserialize(Ar, validPos);
             ArrayDim = Ar.Read<int>();
-            PropertyFlags = Ar.Read<EPropertyFlags>();
-            RepNotifyFunc = Ar.ReadFName();
+            PropertyFlags = Ar.Ver >= EUnrealEngineObjectUE3Version.PropertyFlagsSizeExpandedTo64Bits ? Ar.Read<EPropertyFlags>() : (EPropertyFlags)Ar.Read<uint>();
+            if (Ar.Game == GAME_RocketLeague && (int)Ar.LicenseeVer > 10) Ar.SkipFString(); // ObjectName
+            if (Ar.Game >= GAME_UE4_0)
+            {
+                RepNotifyFunc = Ar.ReadFName();
+            }
+
             if (FReleaseObjectVersion.Get(Ar) >= FReleaseObjectVersion.Type.PropertiesSerializeRepCondition)
             {
                 BlueprintReplicationCondition = (ELifetimeCondition) Ar.Read<byte>();
             }
+
+            if (Ar.Ver < EUnrealEngineObjectUE3Version.temp10) Ar.Position += sizeof(byte); // what is this?
         }
 
         protected internal override void WriteJson(JsonWriter writer, JsonSerializer serializer)
@@ -97,8 +104,11 @@ namespace CUE4Parse.UE4.Objects.UObject
         public override void Deserialize(FAssetArchive Ar, long validPos)
         {
             base.Deserialize(Ar, validPos);
-            BoolSize = Ar.Read<byte>();
-            bIsNativeBool = Ar.ReadFlag();
+            if (Ar.Ver >= EUnrealEngineObjectUE4Version.VARIABLE_BITFIELD_SIZE)
+            {
+                BoolSize = Ar.Read<byte>();
+                bIsNativeBool = Ar.ReadFlag();
+            }
         }
 
         protected internal override void WriteJson(JsonWriter writer, JsonSerializer serializer)
@@ -132,7 +142,17 @@ namespace CUE4Parse.UE4.Objects.UObject
         }
     }
 
-    public class UObjectProperty : UObjectPropertyBase { }
+    public class UObjectProperty : UObjectPropertyBase
+    {
+        public override void Deserialize(FAssetArchive Ar, long validPos)
+        {
+            base.Deserialize(Ar, validPos);
+            if (Ar.Game == GAME_RocketLeague)
+            {
+                Ar.SkipFName(); // unknown
+            }
+        }
+    }
 
     public class UWeakObjectProperty : UObjectPropertyBase { }
 
@@ -160,6 +180,8 @@ namespace CUE4Parse.UE4.Objects.UObject
             serializer.Serialize(writer, MetaClass);
         }
     }
+
+    public class UComponentProperty : UObjectProperty;
 
     public class UClassProperty : UObjectProperty
     {
@@ -207,6 +229,10 @@ namespace CUE4Parse.UE4.Objects.UObject
         {
             base.Deserialize(Ar, validPos);
             InterfaceClass = new FPackageIndex(Ar);
+            if (Ar.Game == GAME_RocketLeague)
+            {
+                Ar.SkipFName(); // unknown
+            }
         }
 
         protected internal override void WriteJson(JsonWriter writer, JsonSerializer serializer)
@@ -306,11 +332,24 @@ namespace CUE4Parse.UE4.Objects.UObject
     public class UDelegateProperty : UProperty
     {
         public FPackageIndex SignatureFunction; // UFunction
+        public FPackageIndex? SourceDelegate;
 
         public override void Deserialize(FAssetArchive Ar, long validPos)
         {
             base.Deserialize(Ar, validPos);
             SignatureFunction = new FPackageIndex(Ar);
+
+            if (Ar.Ver > EUnrealEngineObjectUE3Version.AddedDelegateSourceToUDelegateProperty && Ar.Game < GAME_UE4_0)
+            {
+                if (Ar.Ver < EUnrealEngineObjectUE3Version.ADDED_UExPORTER_PREFFERED_FORMAT)
+                {
+                    Ar.ReadFName(); // SourceDelegate
+                }
+                else
+                {
+                    SourceDelegate = new FPackageIndex(Ar);
+                }
+            }
         }
 
         protected internal override void WriteJson(JsonWriter writer, JsonSerializer serializer)
@@ -319,6 +358,12 @@ namespace CUE4Parse.UE4.Objects.UObject
 
             writer.WritePropertyName("SignatureFunction");
             serializer.Serialize(writer, SignatureFunction);
+            
+            if (SourceDelegate is { IsNull: false })
+            {
+                writer.WritePropertyName("SourceDelegate");
+                serializer.Serialize(writer, SourceDelegate);
+            }
         }
     }
 

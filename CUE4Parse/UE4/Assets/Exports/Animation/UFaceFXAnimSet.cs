@@ -15,14 +15,22 @@ public class UFaceFXAnimSet : UObject
     {
         base.Deserialize(Ar, validPos);
 
-        if (Ar.Game is EGame.GAME_Borderlands4)
+        if (Ar.Game is GAME_Borderlands4)
         {
             FaceFXAnimDataList = GetOrDefault<GbxFaceFXAnimData[]>(nameof(FaceFXAnimDataList)) ?? [];
             AnimBuffer = GetOrDefault<byte[]>(nameof(AnimBuffer));
             return;
         }
 
-        Ar.SkipMultipleFixedArrays(Ar.Read<int>(), 1); // RawFaceFXAnimSetBytes
-        Ar.SkipMultipleFixedArrays(Ar.Read<int>(), 1); // RawFaceFXMiniSessionBytes
+        if (Ar.Game >= GAME_UE4_0)
+        {
+            Ar.SkipMultipleFixedArrays(Ar.Read<int>(), 1); // RawFaceFXAnimSetBytes
+            Ar.SkipMultipleFixedArrays(Ar.Read<int>(), 1); // RawFaceFXMiniSessionBytes
+        }
+        else
+        {
+            Ar.SkipArray<byte>(); // RawFaceFXAnimSetBytes
+            Ar.SkipArray<byte>(); // RawFaceFXMiniSessionBytes
+        }
     }
 }

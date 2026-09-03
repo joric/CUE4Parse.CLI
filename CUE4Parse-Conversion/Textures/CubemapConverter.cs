@@ -1,4 +1,3 @@
-using System;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Objects.Core.Math;
@@ -277,6 +276,15 @@ public static class CubemapConverter
                     *(cubeDataPtr + pixelOffset + 0) / 255.0f, // B
                     *(cubeDataPtr + pixelOffset + 1) / 255.0f, // G
                     *(cubeDataPtr + pixelOffset + 2) / 255.0f // R
+                );
+
+            case EPixelFormat.PF_A8R8G8B8:
+                pixelOffset *= 4; // 4 bytes per pixel
+                return new FLinearColor(
+                    *(cubeDataPtr + pixelOffset + 0) / 255.0f, // A
+                    *(cubeDataPtr + pixelOffset + 3) / 255.0f, // B
+                    *(cubeDataPtr + pixelOffset + 2) / 255.0f, // G
+                    *(cubeDataPtr + pixelOffset + 1) / 255.0f // R
                 );
 
             case EPixelFormat.PF_R8:

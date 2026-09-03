@@ -1,12 +1,7 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
 using CUE4Parse.Compression;
 using CUE4Parse.FileProvider;
 using CUE4Parse.FileProvider.Objects;
@@ -24,6 +19,7 @@ namespace CUE4Parse.GameTypes.AshEchoes.FileProvider;
 
 public class AEDefaultFileProvider : DefaultFileProvider
 {
+    
     public AEDefaultFileProvider(string directory, SearchOption searchOption, VersionContainer? versions = null,
         StringComparer? pathComparer = null) : base(directory, searchOption, versions, pathComparer)
     {
@@ -126,7 +122,7 @@ public class AEDefaultFileProvider : DefaultFileProvider
             var path = Path.Combine(repoPath, entry.Folder, entry.FileName);
             if (!File.Exists(path))
             {
-                Log.Warning($"File not found: {path}");
+                Log.Warning("File not found: {Path}", path);
                 continue;
             }
 
@@ -208,6 +204,7 @@ public class FAEPakEntry : FPakEntry
 
 public class AEPakFileReader : AbstractAesVfsReader
 {
+
     private readonly string _indexName;
     public readonly FArchive Ar;
 

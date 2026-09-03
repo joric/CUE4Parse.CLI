@@ -6,18 +6,19 @@ public static class WwiseVersionInfo
     // Should be noted that Wwise added support for Unreal Engine around version 100, so we can safely ignore older ones
     public static readonly uint[] SupportedVersions =
     [
+        65,     // Dishonored 1
         88,     // Assasin Creed Unity
         112,    // Dead by Daylight (old)
-        113,    // Dead by Daylight (old), Styx: Shards of Drakness, Abzu
+        113,    // Dead by Daylight (old), Styx: Shards of Drakness, Abzu, What Remains of Edith Finch
         120,    // Code Vein
-        125,    // Ace Combat 7
+        125,    // Ace Combat 7, PUBG Mobile
         132,    // Dead by Daylight (old), Undawn
         134,    // Valorant (old)
-        135,    // Dead by Daylight (old), Hot Wheels Unleashed, Tetris Effect
+        135,    // Dead by Daylight (old), Hot Wheels Unleashed, Tetris Effect, Valorant Source
         140,    // Dead by Daylight (old), FNAF Security Breach, Hogwarts Legacy, The Casting of Frank Stone, BLUE PROTOCOL, PAYDAY 3, The Anacrusis, The Outlast Trials, Little Nightmares 3, eBaseball PRO SPIRIT
         145,    // Valorant, Marvel Rivals, FNAF: Secret of the Mimic, 2XKO, Crystal of Atlan, REMATCH
         150,    // Dead by Daylight (old), Splitgate 2, Byte Breakers, Le Dernier Don
-        154,    // Off The Grid, Dead by Daylight
+        154,    // Off The Grid, Dead by Daylight, Lord of Mysteries
         172,    // Soglia (Unity), Stardream Prologue
         174
     ];

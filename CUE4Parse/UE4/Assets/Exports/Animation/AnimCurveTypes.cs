@@ -1,6 +1,5 @@
 ﻿using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Utils;
-using CUE4Parse.UE4.Objects.Engine.Animation;
 using CUE4Parse.UE4.Objects.Engine.Curves;
 using CUE4Parse.UE4.Objects.UObject;
 
@@ -28,6 +27,7 @@ namespace CUE4Parse.UE4.Assets.Exports.Animation
         }
     }
 
+    [StructFallback]
     public class FFloatCurve : FAnimCurveBase
     {
         public FRichCurve FloatCurve;
@@ -40,6 +40,7 @@ namespace CUE4Parse.UE4.Assets.Exports.Animation
         }
     }
 
+    [StructFallback]
     public readonly struct FRawCurveTracks
     {
         public readonly FFloatCurve[]? FloatCurves;

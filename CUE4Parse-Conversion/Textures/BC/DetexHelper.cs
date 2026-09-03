@@ -1,17 +1,17 @@
-﻿using System;
-using System.IO;
 using System.Reflection;
 using System.Resources;
 using System.Runtime.CompilerServices;
-using System.Threading.Tasks;
-using Serilog;
+using CUE4Parse.UE4.Exceptions;
 
 namespace CUE4Parse_Conversion.Textures.BC;
 
 public static class DetexHelper
 {
+    
     private const string MANIFEST_URL = "CUE4Parse_Conversion.Resources.Detex.dll";
     public const string DLL_NAME = "Detex.dll";
+
+    private static readonly Lock _detexLock = new();
 
     private static Detex? Instance { get; set; }
 
@@ -57,7 +57,13 @@ public static class DetexHelper
         }
 
         var dst = new byte[width * height * (isFloat ? 16 : 4)];
-        Instance.DecodeDetexLinear(inp, dst, width, height, inputFormat, outputPixelFormat);
+        lock (_detexLock)
+        {
+            if (!Instance.DecodeDetexLinear(inp, dst, width, height, inputFormat, outputPixelFormat))
+            {
+                Log.Warning("Detex failed to decode the texture: {Format} {Width}x{Height}", outputPixelFormat, width, height);
+            }
+        }
         return dst;
     }
 
@@ -72,7 +78,7 @@ public static class DetexHelper
 
             if (File.Exists(dllPath))
             {
-                Log.Information($"Detex DLL already exists at \"{dllPath}\".");
+                Log.Information("Detex DLL already exists at \"{DllPath}\".", dllPath);
                 return true;
             }
 
@@ -85,7 +91,7 @@ public static class DetexHelper
             await using var dllFs = File.Create(dllPath);
             await stream.CopyToAsync(dllFs).ConfigureAwait(false);
 
-            Log.Information($"Successfully loaded Detex DLL from embedded resources to \"{dllPath}\"");
+            Log.Information("Successfully loaded Detex DLL from embedded resources to \"{DllPath}\"", dllPath);
             return true;
         }
         catch (Exception ex)

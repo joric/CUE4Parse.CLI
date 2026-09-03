@@ -1,4 +1,4 @@
-using Fmod5Sharp.FmodTypes;
+using System.Text;
 using CUE4Parse.UE4.FMod.Enums;
 using CUE4Parse.UE4.FMod.Metadata;
 using CUE4Parse.UE4.FMod.Nodes;
@@ -7,20 +7,16 @@ using CUE4Parse.UE4.FMod.Nodes.Effects;
 using CUE4Parse.UE4.FMod.Nodes.Instruments;
 using CUE4Parse.UE4.FMod.Nodes.Transitions;
 using CUE4Parse.UE4.FMod.Objects;
-using System.Collections.Generic;
-using System.Text;
-using System.IO;
-using System;
-using System.Linq;
-using Serilog;
-using Newtonsoft.Json;
 using CUE4Parse.UE4.FMod.Utils;
+using Fmod5Sharp.FmodTypes;
+using Newtonsoft.Json;
 
 namespace CUE4Parse.UE4.FMod;
 
 [JsonConverter(typeof(FModConverter))]
 public class FModReader
 {
+    
     public readonly string BankName;
     public static int Version => FormatInfo.FileVersion;
     public static FFormatInfo FormatInfo;
@@ -80,7 +76,7 @@ public class FModReader
         if (actualSize < expectedSize)
             throw new Exception($"Truncated file: expected {expectedSize} bytes, got {actualSize}");
         else if (actualSize > expectedSize)
-            Log.Warning($"File larger than RIFF size (expected {expectedSize}, got {actualSize})");
+            Log.Warning("File larger than RIFF size (expected {ExpectedSize}, got {ActualSize})", expectedSize, actualSize);
     }
 
     private void ParseNodes(BinaryReader Ar, long start, long end)
@@ -297,7 +293,7 @@ public class FModReader
                 break;
 
                 default:
-                    Log.Warning($"Unknown chunk {nodeId} at {nodeStart}, size={nodeSize}, skipped");
+                    Log.Warning("Unknown chunk {NodeId} at {NodeStart}, size={NodeSize}, skipped", nodeId, nodeStart, nodeSize);
                     break;
             }
 
@@ -310,7 +306,7 @@ public class FModReader
             if (Ar.BaseStream.Position != nextNode)
             {
                 if (nodeId is not ERIFFID.CHUNKID_LIST)
-                    Log.Warning($"Chunk {nodeId} did not parse fully (at {Ar.BaseStream.Position}, should be {nextNode})");
+                    Log.Warning("Chunk {NodeId} did not parse fully (at {Position}, should be {ExpectedPosition})", nodeId, Ar.BaseStream.Position, nextNode);
 
                 Ar.BaseStream.Position = nextNode;
             }
@@ -619,7 +615,7 @@ public class FModReader
 
         if (subsoundIndex is -1)
         {
-            Log.Warning($"Sound with key '{key}' (hash {hash:X}) not found in sound table");
+            Log.Warning("Sound with key '{Key}' (hash {Hash:X}) not found in sound table", key, hash);
             return false;
         }
 

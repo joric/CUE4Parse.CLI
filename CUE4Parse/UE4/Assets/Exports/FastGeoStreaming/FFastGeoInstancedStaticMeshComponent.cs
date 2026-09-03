@@ -27,9 +27,12 @@ public class FFastGeoInstancedStaticMeshComponent : FFastGeoStaticMeshComponentB
     public FFastGeoInstancedStaticMeshComponent(FFastGeoArchive Ar) : base(Ar)
     {
         bUseHighPrecisionPerInstanceSMData = Ar.Game switch {
-            >= EGame.GAME_UE5_8 => Ar.ReadBoolean(),
+            >= GAME_UE5_8 => Ar.ReadBoolean(),
             _ => true,
         };
+
+        // i think it's FMatrix3x4, where 3x3 is scale and rotation, and last row is translation
+        if (Ar.Game is GAME_GearsofWarEDay) Ar.SkipBulkArrayData();
 
         if (bUseHighPrecisionPerInstanceSMData)
         {
@@ -39,15 +42,20 @@ public class FFastGeoInstancedStaticMeshComponent : FFastGeoStaticMeshComponentB
         {
             PerInstanceSMData = Ar.ReadBulkArray(() => new FInstancedStaticMeshInstanceData(Ar.Read<FTransform>()));
         }
-        
-        LastInstanceBodyIndex = Ar.Game >= EGame.GAME_UE5_8 ? Ar.Read<int>() : 0;
+
+        LastInstanceBodyIndex = Ar.Game >= GAME_UE5_8 ? Ar.Read<int>() : 0;
         InstancingRandomSeed = Ar.Read<int>();
         PerInstanceSMCustomData = Ar.ReadBulkArray(Ar.Read<float>);
         AdditionalRandomSeeds = Ar.ReadArray<FInstancedStaticMeshRandomSeed>();
+        if (Ar.Game is GAME_SilverPalace)
+        {
+            Ar.Position += 16;
+            return;
+        }
         NavigationBounds = new FBox(Ar);
         SceneProxyDesc.InstancedStaticMeshSceneProxyDesc = new FInstancedStaticMeshSceneProxyDesc(Ar);
-        SpatialHashes = Ar.Game >= EGame.GAME_UE5_8 ? Ar.ReadBulkArray<FCompressedSpatialHashItem>() : [] ;
-        PerInstanceRandomIDs = Ar.Game >= EGame.GAME_UE5_8 ? Ar.ReadBulkArray<float>() : [] ;
+        SpatialHashes = Ar.Game >= GAME_UE5_8 ? Ar.ReadBulkArray<FCompressedSpatialHashItem>() : [] ;
+        PerInstanceRandomIDs = Ar.Game >= GAME_UE5_8 ? Ar.ReadBulkArray<float>() : [] ;
     }
 }
 

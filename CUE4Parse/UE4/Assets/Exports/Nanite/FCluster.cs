@@ -1,9 +1,7 @@
-using System;
 using System.Numerics;
 using System.Runtime.Intrinsics;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Readers;
-using CUE4Parse.UE4.Versions;
 using static CUE4Parse.UE4.Assets.Exports.Nanite.NaniteConstants;
 using static CUE4Parse.UE4.Assets.Exports.Nanite.NaniteUtils;
 
@@ -53,6 +51,8 @@ public class FCluster
     /// <summary>Flags used to identify the cluster's role.</summary>
     public NANITE_CLUSTER_FLAG Flags;
     public uint NumClusterBoneInfluences;
+    public uint	ClusterBoneInfluenceAddress;
+    public uint	ClusterBoneInfluenceStride;
     /// <summary>The offset from the gpu page header where the vertex attributes of non-ref vertices can be found.</summary>
     public uint AttributeOffset;
     /// <summary>The number of bits used to store the atribute data for a non-ref vertex in this cluster.</summary>
@@ -62,6 +62,8 @@ public class FCluster
     /// <summary>True if the mesh has explicit tangents, only available after 5.3</summary>
     public bool bHasTangents;
     public bool bSkinning;
+    public bool bVoxel;
+    public bool bCurve;
     /// <summary>The number of uv ranges associated with this cluster.</summary>
     public uint NumUVs;
     public uint ColorMode;
@@ -81,6 +83,7 @@ public class FCluster
     public uint Material0Length;
     /// <summary>The number of triangles associated with the second material when not using a material table.</summary>
     public uint Material1Length;
+    public uint MaterialTotalLength;
     public uint VertReuseBatchCountTableOffset;
     public uint VertReuseBatchCountTableSize;
     public TIntVector4<uint> VertReuseBatchInfo;
@@ -90,6 +93,20 @@ public class FCluster
     public uint BrickDataOffset;
     public uint BrickDataNum;
 
+    public uint NumCurves;
+    public uint	NumPointsPerCurve;
+
+    public bool	CompileTimeCouldBeCurve;
+    public bool	bHasCurveRadius;
+    public uint	CurveRadiusBits;
+    public float CurveRadiusScale;
+    public uint	CurveFadingIndex;
+    public bool bCurveSkinning;
+    public uint	CurveSkinningIndex;
+
+    public float ParentLODError;
+    public float ParentSphereBoundRadius;
+
     // decoded mesh data
     public FNaniteVertex?[] Vertices = [];
     public FUIntVector[] TriIndices = [];
@@ -98,11 +115,14 @@ public class FCluster
     public uint[] GroupNonRefToVertex = [];
     public FUVRange_Old[] UVRanges_Old = [];
     public FUVRange[] UVRanges = [];
+    public FBoneInfluenceHeader BoneInfluenceHeader;
+    public uint[] ClusterBoneInfluences = [];
 
     public FCluster(FArchive Ar, int stride)
     {
+        //0
         var numVerts_positionOffset = Ar.Read<uint>();
-        if (Ar.Game >= EGame.GAME_UE5_6)
+        if (Ar.Game >= GAME_UE5_6)
         {
             NumVerts = GetBits(numVerts_positionOffset, 14, 0);
             PositionOffset = GetBits(numVerts_positionOffset, 18, 14);
@@ -129,11 +149,11 @@ public class FCluster
             (int) GetBits(ColorBits, 4, 8), (int) GetBits(ColorBits, 4, 12)
         );
 
-        Ar.Position += stride;
+        Ar.Position += stride;//1
         PosStart = Ar.Read<FIntVector>();
 
         var bitsPerIndex_posPrecision_posBits = Ar.Read<uint>();
-        if (Ar.Game >= EGame.GAME_UE5_4)
+        if (Ar.Game >= GAME_UE5_4)
         {
             BitsPerIndex = GetBits(bitsPerIndex_posPrecision_posBits, 3, 0) + 1;
             PosPrecision = (int) GetBits(bitsPerIndex_posPrecision_posBits, 6, 3) + NANITE_MIN_POSITION_PRECISION_504;
@@ -146,21 +166,21 @@ public class FCluster
         PosBitsX = GetBits(bitsPerIndex_posPrecision_posBits, 5, 9);
         PosBitsY = GetBits(bitsPerIndex_posPrecision_posBits, 5, 14);
         PosBitsZ = GetBits(bitsPerIndex_posPrecision_posBits, 5, 19);
-        NormalPrecision = Ar.Game >= EGame.GAME_UE5_2 ? GetBits(bitsPerIndex_posPrecision_posBits, 4, 24) : NANITE_MAX_NORMAL_QUANTIZATION_BITS_500;
-        TangentPrecision = Ar.Game >= EGame.GAME_UE5_3 ? GetBits(bitsPerIndex_posPrecision_posBits, 4, 28) : 0;
+        NormalPrecision = Ar.Game >= GAME_UE5_2 ? GetBits(bitsPerIndex_posPrecision_posBits, 4, 24) : NANITE_MAX_NORMAL_QUANTIZATION_BITS_500;
+        TangentPrecision = Ar.Game >= GAME_UE5_3 ? GetBits(bitsPerIndex_posPrecision_posBits, 4, 28) : 0;
         PosScale = PrecisionScales[PosPrecision];
 
-        Ar.Position += stride;
+        Ar.Position += stride;//2
         LODBounds = Ar.Read<FVector4>();
 
-        Ar.Position += stride;
+        Ar.Position += stride;//3
         BoxBoundsCenter = Ar.Read<FVector>();
         LODError = (float) Ar.Read<Half>();
         EdgeLength = (float) Ar.Read<Half>();
 
-        Ar.Position += stride;
+        Ar.Position += stride;//4
         BoxBoundsExtent = Ar.Read<FVector>();
-        if (Ar.Game >= EGame.GAME_UE5_6)
+        if (Ar.Game >= GAME_UE5_6)
         {
             var packed = Ar.Read<uint>();
             Flags = (NANITE_CLUSTER_FLAG) GetBits(packed, 4, 0);
@@ -171,27 +191,27 @@ public class FCluster
             Flags = Ar.Read<NANITE_CLUSTER_FLAG>();
         }
 
-        Ar.Position += stride;
+        Ar.Position += stride;//5
         var attributeOffset_bitsPerAttribute = Ar.Read<uint>();
         AttributeOffset = GetBits(attributeOffset_bitsPerAttribute, 22, 0);
         BitsPerAttribute = GetBits(attributeOffset_bitsPerAttribute, 10, 22);
 
         var decodeInfoOffset_bHasTengants_numUVs_colorMode = Ar.Read<uint>();
-        DecodeInfoOffset = NaniteUtils.GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 22, 0);
-        if (Ar.Game >= EGame.GAME_UE5_5)
+        DecodeInfoOffset = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 22, 0);
+        if (Ar.Game >= GAME_UE5_5)
         {
             bHasTangents = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 1, 22) == 1;
             bSkinning = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 1, 23) == 1;
             NumUVs = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 3, 24);
             ColorMode = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 1, 27);
         }
-        else if (Ar.Game >= EGame.GAME_UE5_4)
+        else if (Ar.Game >= GAME_UE5_4)
         {
             bHasTangents = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 1, 22) == 1;
             NumUVs = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 3, 23);
             ColorMode = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 1, 26);
         }
-        else if (Ar.Game >= EGame.GAME_UE5_3)
+        else if (Ar.Game >= GAME_UE5_3)
         {
             bHasTangents = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 1, 22) == 1;
             NumUVs = GetBits(decodeInfoOffset_bHasTengants_numUVs_colorMode, 3, 23);
@@ -205,17 +225,37 @@ public class FCluster
 
         UVBitOffsets = Ar.Read<uint>();
         var materialEncoding = Ar.Read<uint>();
-        Ar.Position += stride;
-        if (Ar.Game >= EGame.GAME_UE5_5)
+
+        if (Ar.Game >= GAME_UE5_5)
         {
+            Ar.Position += stride;//6
             var ExtendedDataOfsset_Num = Ar.Read<uint>();
             ExtendedDataOffset = GetBits(ExtendedDataOfsset_Num, 22, 0);
             ExtendedDataNum = GetBits(ExtendedDataOfsset_Num, 10, 22);
             var BrickDataOfsset_Num = Ar.Read<uint>();
             BrickDataOffset = GetBits(BrickDataOfsset_Num, 22, 0);
             BrickDataNum = GetBits(BrickDataOfsset_Num, 10, 22);
-            Ar.Position += 8;
-            Ar.Position += stride;
+            bVoxel = false;
+            if (Ar.Game >= GAME_UE5_8)
+            {
+                var curveZ = Ar.Read<uint>();
+                NumCurves = GetBits(curveZ, 8, 0);
+                NumPointsPerCurve = GetBits(curveZ, 8, 8);
+
+                //bCurve				= ClusterType == NANITE_CLUSTER_TYPE_CURVES ? true : (Cluster.NumCurves > 0) && NANITE_CURVE_DATA;
+                //CompileTimeCouldBeCurve = ClusterType == NANITE_CLUSTER_TYPE_UNKNOWN || ClusterType == NANITE_CLUSTER_TYPE_CURVES;
+
+                CurveRadiusScale	= Unpack10F(GetBits(curveZ, 10, 16));
+                CurveRadiusBits		= GetBits(curveZ, 4, 26);
+                bHasCurveRadius 	= GetBits(curveZ, 1, 30) == 1 && bCurve;
+                CurveSkinningIndex	= GetBits(BrickDataOfsset_Num, 16,  0); // Aliased with BrickDataOffset, since Curve and Voxel are mutually exclusive
+                CurveFadingIndex	= BrickDataNum; // Aliased with BrickDataNum, since Curve and Voxel are mutually exclusive
+                bCurveSkinning		= CurveSkinningIndex != 0xFFFF;
+                ParentLODError 		= (float) Ar.Read<Half>();
+                ParentSphereBoundRadius = (float) Ar.Read<Half>();
+            }
+            else
+                Ar.Position += 8;
         }
 
         if (materialEncoding < 0xFE000000u)
@@ -231,8 +271,15 @@ public class FCluster
             VertReuseBatchCountTableOffset = 0;
             VertReuseBatchCountTableSize = 0;
 
-            Ar.Position += stride;
-            VertReuseBatchInfo = Ar.Game >= EGame.GAME_UE5_1 ? Ar.Read<TIntVector4<uint>>() : default;
+            if (Ar.Game >= GAME_UE5_1)
+            {
+                Ar.Position += stride; //6 or 7 in 5.5+
+                VertReuseBatchInfo = Ar.Read<TIntVector4<uint>>();
+            }
+            else
+            {
+                VertReuseBatchInfo = default;
+            }
             MaterialRanges = [];
         }
         else
@@ -246,8 +293,9 @@ public class FCluster
             Material0Length = 0;
             Material1Length = 0;
             Material1Length = 0;
-            if (Ar.Game >= EGame.GAME_UE5_1)
+            if (Ar.Game >= GAME_UE5_1)
             {
+                Ar.Position += stride;//6 or 7 in 5.5+
                 VertReuseBatchCountTableOffset = Ar.Read<uint>();
                 VertReuseBatchCountTableSize = Ar.Read<uint>();
                 Ar.Position += 8;
@@ -322,7 +370,7 @@ public class FCluster
         }
 
         Ar.Position = page.GPUPageHeaderOffset + DecodeInfoOffset;
-        if (Ar.Game >= EGame.GAME_UE5_4)
+        if (Ar.Game >= GAME_UE5_4)
         {
             UVRanges = Ar.ReadArray((int) NumUVs, () => new FUVRange(Ar));
         }
@@ -331,9 +379,15 @@ public class FCluster
             UVRanges_Old = Ar.ReadArray<FUVRange_Old>((int) NumUVs);
         }
 
+        if (Ar.Game >= GAME_UE5_6 && bSkinning)
+        {
+            Ar.Position = page.GPUPageHeaderOffset + DecodeInfoOffset + NumUVs * 8;
+            BoneInfluenceHeader = new FBoneInfluenceHeader(Ar, page.GPUPageHeaderOffset);
+        }
+
         Vertices = new FNaniteVertex[NumVerts];
         // read non ref vert information
-        if (Ar.Game >= EGame.GAME_UE5_4)
+        if (Ar.Game >= GAME_UE5_4)
         {
             FUIntVector nextLowMidHighOffsets = new FUIntVector((int) clusterDiskHeader.LowBytesDataOffset, (int) clusterDiskHeader.MidBytesDataOffset,
                     (int) clusterDiskHeader.HighBytesDataOffset) + (uint) page.PageDiskHeaderOffset;
@@ -419,6 +473,7 @@ public class FCluster
                     Attributes.Color = colorMin;
                 }
 
+                if (NumUVs > NANITE_MAX_UVS) Attributes.UVs = new FVector2D[NumUVs];
                 for (uint texCoordIndex = 0; texCoordIndex < NumUVs; texCoordIndex++)
                 {
                     Value = LMHReader.Read(texCoordLowMidHighBaseOffsets[texCoordIndex], UVRanges[texCoordIndex].TexCoordBytesPerValue, 2, nonRefVertexIndex, ref prevPassUVs[texCoordIndex]) & texCoordMask[texCoordIndex];
@@ -459,13 +514,35 @@ public class FCluster
         }
     }
 
+    public FBoneInfluence[] DecodeVertexBoneInfluence(FArchive Ar, FBoneInfluenceHeader boneInfluenceHeader, uint vertIndex)
+    {
+        Ar.Position = boneInfluenceHeader.DataAddress;
+        var bitsPerInfluence = boneInfluenceHeader.NumVertexBoneIndexBits + boneInfluenceHeader.NumVertexBoneWeightBits;
+        float weightScale = 1.0f / ((1u << (int)boneInfluenceHeader.NumVertexBoneWeightBits) - 1u);
+
+        var res = new FBoneInfluence[boneInfluenceHeader.NumVertexBoneInfluences];
+        for (var i = 0; i < boneInfluenceHeader.NumVertexBoneInfluences; i++)
+        {
+            var bitOffset = (vertIndex * boneInfluenceHeader.NumVertexBoneInfluences + i) * bitsPerInfluence;
+            var boneDataStream = CreateBitStreamReader_Aligned(boneInfluenceHeader.DataAddress, bitOffset, 32);
+            var boneIndex = boneDataStream.Read(Ar, boneInfluenceHeader.NumVertexBoneIndexBits, NANITE_MAX_BONE_INDEX_BITS);
+            var boneWeight = boneDataStream.Read(Ar, boneInfluenceHeader.NumVertexBoneWeightBits, NANITE_MAX_BLEND_WEIGHT_BITS) * weightScale;
+            boneWeight = boneInfluenceHeader.NumVertexBoneWeightBits > 0 ? boneWeight : 1.0f;
+            res[i] = new(boneIndex, boneWeight);
+        }
+
+        return res;
+    }
+
+    // https://github.com/EpicGames/UnrealEngine/blob/7deeb413d3dc1fc034f48d1aacc0861301829d32/Engine/Shaders/Private/Nanite/NaniteAttributeDecode.ush#L178
     private static int GetMaxAttributeBits(FArchive Ar, int numTexCoords)
     {
+        // add curves??
         int ret =
             + 2 * NANITE_MAX_NORMAL_QUANTIZATION_BITS(Ar.Game)
             + 4 * NANITE_MAX_COLOR_QUANTIZATION_BITS
             + numTexCoords * (2 * NANITE_MAX_TEXCOORD_QUANTIZATION_BITS(Ar.Game));
-        if (Ar.Game >= EGame.GAME_UE5_3)
+        if (Ar.Game >= GAME_UE5_3)
         {
             ret += 1 + NANITE_MAX_TANGENT_QUANTIZATION_BITS;
         }
@@ -510,7 +587,7 @@ public class FCluster
         (uint x, uint y, uint z) = (0, 0, 0);
         long readBaseAddress = page.PageDiskHeaderOffset + clusterDiskHeader.IndexDataOffset;
         // -1 if not Start
-        uint indexData = NaniteUtils.ReadUnalignedDword(Ar, readBaseAddress, (numPrevRefVertices + ~isStart) * 5);
+        uint indexData = ReadUnalignedDword(Ar, readBaseAddress, (numPrevRefVertices + ~isStart) * 5);
         if (isStart != 0)
         {
             int minusNumRefVertices = (isLeft << 1) + isRef;
@@ -577,8 +654,8 @@ public class FCluster
 
             // ReadOffset: Where is the vertex relative to triangle we searched for?
             int readOffset = isFoundCaseS != 0 ? isLeft : 1;
-            uint foundIndexData = NaniteUtils.ReadUnalignedDword(Ar, readBaseAddress, (foundNumPrevRefVertices - readOffset) * 5);
-            uint foundIndex = ((uint)foundNumPrevNewVertices - 1u) - NaniteUtils.GetBits(foundIndexData, 5, 0);
+            uint foundIndexData = ReadUnalignedDword(Ar, readBaseAddress, (foundNumPrevRefVertices - readOffset) * 5);
+            uint foundIndex = ((uint)foundNumPrevNewVertices - 1u) - GetBits(foundIndexData, 5, 0);
 
             bool condition = isFoundCaseS != 0 ? ((int) foundNumRefVertices >= 1 - isLeft) : (isBeforeFoundRefVertex != 0);
             int foundNewVertex = foundNumPrevNewVertices + (isFoundCaseS != 0 ? (isLeft & (foundNumRefVertices == 0 ? 1 : 0)) : -1);
@@ -638,7 +715,7 @@ public class FCluster
             uint srcLocalClusterIndex = GetBits(pageClusterData, maxClustersPerPageBits, 0);
             Ar.Position = page.PageDiskHeaderOffset + clusterDiskHeader.VertexRefDataOffset + refVertexIndex + page.PageDiskHeader.NumVertexRefs;
             byte srcCodedVertexIndex = Ar.Read<byte>();
-            if (Ar.Game >= EGame.GAME_UE5_4)
+            if (Ar.Game >= GAME_UE5_4)
             {
                 var temp = DecodeZigZag(srcCodedVertexIndex) + prevRefVertexIndex;
                 prevRefVertexIndex = temp;
@@ -659,7 +736,7 @@ public class FCluster
             else
             {
                 srcCluster = page.Clusters[srcLocalClusterIndex];
-                if (Ar.Game >= EGame.GAME_UE5_4)
+                if (Ar.Game >= GAME_UE5_4)
                 {
                     realSrcVertexIndex = srcCodedVertexIndex;
                 }
@@ -683,6 +760,15 @@ public class FCluster
                 Attributes = srcVert.Attributes,
                 IsRef = true
             };
+        }
+
+        if (bSkinning)
+        {
+            for (uint i = 0; i < Vertices.Length; i++)
+            {
+                if (!(Vertices[i]?.Attributes is { } attributes)) continue;
+                attributes.Influences = DecodeVertexBoneInfluence(Ar, BoneInfluenceHeader, i);
+            }
         }
     }
 }

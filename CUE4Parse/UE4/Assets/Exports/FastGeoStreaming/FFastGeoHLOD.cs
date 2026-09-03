@@ -1,5 +1,4 @@
 using CUE4Parse.UE4.Objects.Core.Misc;
-using CUE4Parse.UE4.Versions;
 
 namespace CUE4Parse.UE4.Assets.Exports.FastGeoStreaming;
 
@@ -12,10 +11,14 @@ public class FFastGeoHLOD : FFastGeoComponentCluster
 
     public FFastGeoHLOD(FFastGeoArchive Ar) : base(Ar)
     {
+        if (Ar.Game is GAME_GearsofWarEDay)
+        {
+            Ar.Position += 72;
+            return;
+        }
         bRequireWarmup = Ar.ReadBoolean();
         SourceCellGuid = Ar.Read<FGuid>();
         StandaloneHLODGuid = Ar.Read<FGuid>();
-        if (Ar.Game is >= EGame.GAME_UE5_7 and not EGame.GAME_WutheringWavesFastGeo)
-            CustomHLODGuid = Ar.Read<FGuid>();
+        if (Ar.Game is >= GAME_UE5_7) CustomHLODGuid = Ar.Read<FGuid>();
     }
 }

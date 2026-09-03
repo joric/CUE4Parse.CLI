@@ -1,14 +1,13 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
+using CUE4Parse.UE4.Readers;
 using Newtonsoft.Json;
-using Serilog;
+using SubstreamSharp;
 
 namespace CUE4Parse.UE4.CriWare.Readers;
 
 [JsonConverter(typeof(AcbReaderConverter))]
 public sealed class AcbReader : IDisposable
 {
+    
     private readonly Stream _outerStream;
     private readonly long _offset;
     private readonly uint _awbOffset;
@@ -16,6 +15,7 @@ public sealed class AcbReader : IDisposable
 
     private readonly AcbParser _acbParser;
 
+    public string Name { get; }
     public Dictionary<string, List<Dictionary<string, object?>>> AtomCueSheetData => _acbParser.TableData;
 
     public AcbReader(Stream acbStream) : this(acbStream, 0) { }
@@ -31,6 +31,11 @@ public sealed class AcbReader : IDisposable
 
         if (rows != 1 || !name.Equals("Header"))
             throw new InvalidDataException("No Header table.");
+
+        var nameColumn = utfTable.GetColumn("Name");
+        Name = nameColumn >= 0 && utfTable.Query(0, nameColumn, out string acbName)
+            ? acbName
+            : Path.GetFileNameWithoutExtension((acbStream as FArchive)?.Name) ?? string.Empty;
 
         if (utfTable.Query(0, "AwbFile", out VLData awbValueData))
         {
@@ -58,7 +63,7 @@ public sealed class AcbReader : IDisposable
             return null;
         }
 
-        return new AwbReader(new SpliceStream(_outerStream, _awbOffset, _awbLength), true);
+        return new AwbReader(_outerStream.Substream(_awbOffset, _awbLength));
     }
 
     public T? TryGetTableValue<T>(string tableName, string key) where T : class

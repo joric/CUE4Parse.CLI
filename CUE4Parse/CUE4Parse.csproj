@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -22,6 +22,7 @@
     <PackageReference Include="K4os.Compression.LZ4.Streams" />
     <PackageReference Include="SubstreamSharp" />
     <PackageReference Include="System.IO.Hashing" />
+    <PackageReference Include="System.Numerics.Tensors" />
     <PackageReference Include="VGAudio" />
     <PackageReference Include="Zlib-ng.NET" />
     <PackageReference Include="ZstdSharp.Port" />
@@ -34,6 +35,10 @@
     <EmbeddedResource Include="Resources\PUBGNameHashMap.json" />
     <None Remove="Resources\BL4SoundTagsMap.json" />
     <EmbeddedResource Include="Resources\BL4SoundTagsMap.json" />
+    <None Remove="Resources\ProSpiDecryptor.dll" />
+    <EmbeddedResource Include="Resources\ProSpiDecryptor.dll.gz" />
+    <None Remove="Resources\ShaderHashedNames.json" />
+    <EmbeddedResource Include="Resources\ShaderHashedNames.json" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -42,7 +47,7 @@
     <CMakeBuildDir>$(CMakeProject)builddir</CMakeBuildDir>
   </PropertyGroup>
 
-  <Target Name="Build-Natives" BeforeTargets="BeforeBuild" AfterTargets="AfterBuild">
+  <Target Name="Build-Natives" BeforeTargets="BeforeBuild" AfterTargets="AfterBuild" Condition="'$(CUE4PARSE_SKIP_NATIVE)' != 'true' and '$(CUE4PARSE_SKIP_NATIVE)' != '1'">
     <MakeDir Directories="$(CMakeBuildDir)" Condition="!Exists('$(CMakeBuildDir)')" />
     <Exec Command="cmake .." ConsoleToMSBuild="true" WorkingDirectory="$(CMakeBuildDir)" IgnoreExitCode="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="OutputOfExec" />

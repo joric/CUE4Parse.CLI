@@ -1,12 +1,7 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading.Tasks;
 using CUE4Parse.FileProvider.Objects;
 using CUE4Parse.FileProvider.Vfs;
 using CUE4Parse.GameTypes.HonorOfKings.FileProvider.Objects;
@@ -23,6 +18,7 @@ namespace CUE4Parse.GameTypes.HonorOfKings.Vfs;
 
 public sealed class HoKdbFileReader : AbstractAesVfsReader
 {
+    
     public static readonly ConcurrentDictionary<ulong, string> HashMap = [];
     private static readonly ConcurrentDictionary<ulong, string> _indexFiles = [];
     private readonly IReadOnlyList<HoKdbContainerStream> _containerStreams;
@@ -48,7 +44,7 @@ public sealed class HoKdbFileReader : AbstractAesVfsReader
 
         // maybe rewrite it to async
         var containerStreams = new HoKdbContainerStream[files.Length];
-        Parallel.ForEach(Enumerable.Range(0, files.Length), i =>
+        Parallel.For(0, files.Length, i =>
         {
             var file = files[i];
             try

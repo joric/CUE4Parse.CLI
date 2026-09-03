@@ -1,4 +1,3 @@
-using System;
 using CUE4Parse.GameTypes.MK1.Assets.Objects;
 using CUE4Parse.UE4.Assets.Exports.Animation;
 
@@ -8,9 +7,6 @@ public partial class USkeletalMesh : UObject
 {
     public void PopulateMorphTargetVerticesDataMK1()
     {
-        if (LODModels![0] is null || LODModels[0].Sections.Length == 0)
-            LODModels = LODModels[1..];
-
         var maxLodLevel = -1;
         for (int i = 0; i < LODModels.Length; i++)
         {

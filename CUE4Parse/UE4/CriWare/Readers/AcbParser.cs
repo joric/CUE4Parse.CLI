@@ -1,7 +1,4 @@
 using CUE4Parse.UE4.CriWare.Readers.Common;
-using System;
-using System.Collections.Generic;
-using System.IO;
 
 namespace CUE4Parse.UE4.CriWare.Readers;
 
@@ -77,6 +74,14 @@ struct Synth
     public uint ReferenceItemsSize;
     public ushort ActionTrackStartIndex;
     public ushort NumActionTracks;
+}
+
+enum ESynthReferenceType : ushort
+{
+    None,
+    Waveform,
+    Synth,
+    Sequence
 }
 
 public struct Waveform
@@ -452,28 +457,22 @@ public class AcbParser
         {
             _synthReader.BaseStream.Position = r.ReferenceItemsOffset + i * 4;
 
-            ushort itemType = _synthReader.ReadUInt16BE();
-            ushort itemIndex = _synthReader.ReadUInt16BE();
-
+            var itemType = (ESynthReferenceType) _synthReader.ReadUInt16BE();
+            var itemIndex = _synthReader.ReadUInt16BE();
             switch (itemType)
             {
-                case 0:
+                case ESynthReferenceType.None:
                     count = 0;
                     break;
-
-                case 1:
+                case ESynthReferenceType.Waveform:
                     LoadAcbWaveForm(itemIndex);
                     break;
-
-                case 2:
+                case ESynthReferenceType.Synth:
                     LoadAcbSynth(itemIndex);
                     break;
-
-                case 3:
+                case ESynthReferenceType.Sequence:
                     LoadAcbSequence(itemIndex);
                     break;
-
-                case 6:
                 default:
                     count = 0;
                     break;
@@ -551,7 +550,6 @@ public class AcbParser
         _trackCommand = new TrackCommand[rows];
 
         int cCommand = table.GetColumn("Command");
-
         for (int i = 0; i < rows; i++)
         {
             ref TrackCommand r = ref _trackCommand[i];
@@ -674,7 +672,7 @@ public class AcbParser
 
         ref Track r = ref _track[index];
 
-        if (r.EventIndex == 65535)
+        if (r.EventIndex == ushort.MaxValue)
             return;
 
         LoadAcbTrackCommand(r.EventIndex);
@@ -908,25 +906,20 @@ public class AcbParser
         ref Cue r = ref _cue[index];
 
         _currentCueId = r.Id;
-
         switch (r.ReferenceType)
         {
             case EReferenceType.Waveform:
                 LoadAcbWaveForm(r.ReferenceIndex);
                 break;
-
             case EReferenceType.Synth:
                 LoadAcbSynth(r.ReferenceIndex);
                 break;
-
             case EReferenceType.Sequence:
                 LoadAcbSequence(r.ReferenceIndex);
                 break;
-
             case EReferenceType.BlockSequence:
                 LoadAcbBlockSequence(r.ReferenceIndex);
                 break;
-
             default:
                 break;
         }

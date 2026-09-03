@@ -1,7 +1,6 @@
 ﻿using System.Numerics;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.Readers;
-using CUE4Parse.UE4.Versions;
 using CUE4Parse.Utils;
 using static System.MathF;
 
@@ -94,6 +93,8 @@ namespace CUE4Parse.UE4.Objects.Core.Math
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public FBoxSphereBounds TransformBy(FTransform m) => TransformBy(m.ToMatrixWithScale());
+
+        public static FBoxSphereBounds operator *(FBoxSphereBounds a, float scale) => new(a.Origin * scale, a.BoxExtent * scale, a.SphereRadius * scale);
 
         public override string ToString() => $"Origin=({Origin}), BoxExtent=({BoxExtent}), SphereRadius={SphereRadius}";
     }

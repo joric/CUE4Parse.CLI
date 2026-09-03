@@ -127,12 +127,36 @@ public static class FControlRigObjectVersion
 
         // New setting for connectors to optionally specify their use only during post construction
         RigHierarchyPostConstructionConnectors,
-        
+
         // Overrides store TOC data for properties to solidify loading of data when the definition has changed
         OverridesStoreTOCDataForProperties,
-        
+
         // Overrides the skip offset as int64 - previous versions stored it as int32
         OverridesStoreDatSkipOffsetAsInt64,
+
+        // Overrides now only store the path to the leaf as well as the details about the leaf property
+        OverridesStorePathAndLeafPropertyOnly,
+
+        // Overrides now only store the hash for validation, not the size since size can change without changing the payload (containers), also starts including hash for maps and sets
+        OverridesStoreLeafPropertyHashOnly,
+
+        // New settings struct for sockets
+        RigHierarchySocketSettings,
+
+        // Split between topology and data
+        RigHierarchyTopology,
+
+        // Overrides whose owner struct is transient (e.g. a runtime-generated UPropertyBag backing a
+        // modular rig module's Variables) serialize the owner path as a plain string instead of an
+        // FSoftObjectPath, so a reference to a /Engine/Transient object is never recorded in the package.
+        OverridesStoreTransientOwnerStructByName,
+
+        // Overrides now record their owner struct as a hard package reference during reference collection
+        // (see FControlRigOverrideValue::Serialize / WithSerializerObjectReferences = Strong | Soft), so the
+        // owner struct's package is a real import/dependency of the saved package and is loaded ahead of the
+        // override. Assets saved at/after this version no longer need the load-time dynamic-import injection
+        // (UControlRigRuntimeAsset::InjectDynamicImportsFor) - that path only runs for older assets.
+        OverridesStoreOwnerStructAsHardImport,
 
         // -----<new versions can be added above this line>-------------------------------------------------
         VersionPlusOne,
@@ -149,18 +173,19 @@ public static class FControlRigObjectVersion
 
         return Ar.Game switch
         {
-            < EGame.GAME_UE4_23 => Type.BeforeCustomVersionWasAdded,
-            < EGame.GAME_UE4_25 => Type.OperatorsStoringPropertyPaths,
-            < EGame.GAME_UE4_26 => Type.SwitchedToRigVM,
-            < EGame.GAME_UE5_0 => Type.BlueprintVariableSupport,
-            < EGame.GAME_UE5_1 => Type.PerChannelLimits,
-            < EGame.GAME_UE5_2 => Type.LibraryNodeTemplates,
-            < EGame.GAME_UE5_3 => Type.RigHierarchyStoringPreviousNames,
-            < EGame.GAME_UE5_4 => Type.RigHierarchyControlPreferredRotationOrderFlag,
-            < EGame.GAME_UE5_5 => Type.RigPoseWithParentKey,
-            < EGame.GAME_UE5_6 => Type.RigHierarchyIndirectElementStorage,
-            < EGame.GAME_UE5_7 => Type.RigHierarchyPreviousNameAndParentMapUsingHierarchyKey,
-            < EGame.GAME_UE5_8 => Type.OverridesStoreTOCDataForProperties,
+            < GAME_UE4_23 => Type.BeforeCustomVersionWasAdded,
+            < GAME_UE4_25 => Type.OperatorsStoringPropertyPaths,
+            < GAME_UE4_26 => Type.SwitchedToRigVM,
+            < GAME_UE5_0 => Type.BlueprintVariableSupport,
+            < GAME_UE5_1 => Type.PerChannelLimits,
+            < GAME_UE5_2 => Type.LibraryNodeTemplates,
+            < GAME_UE5_3 => Type.RigHierarchyStoringPreviousNames,
+            < GAME_UE5_4 => Type.RigHierarchyControlPreferredRotationOrderFlag,
+            < GAME_UE5_5 => Type.RigPoseWithParentKey,
+            < GAME_UE5_6 => Type.RigHierarchyIndirectElementStorage,
+            < GAME_UE5_7 => Type.RigHierarchyPreviousNameAndParentMapUsingHierarchyKey,
+            < GAME_UE5_8 => Type.OverridesStoreTOCDataForProperties,
+            < GAME_UE6_0 => Type.OverridesStoreLeafPropertyHashOnly,
             _ => Type.LatestVersion
         };
     }

@@ -1,4 +1,4 @@
-﻿using CUE4Parse.UE4.Assets.Readers;
+using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
@@ -28,11 +28,11 @@ public class UTextureCube : UTexture
         {
             var SizeX = Ar.Read<int>();
             var SizeY = Ar.Read<int>();
-            Format = (EPixelFormat) Ar.Read<int>();
+            Format = (EPixelFormat) Ar.Read<byte>();
             var numMips = Ar.Read<int>();
         }
 
-        if (Ar.Game < EGame.GAME_UE4_0) return; // Nothing left
+        if (Ar.Game < GAME_UE4_0) return; // Nothing left
         var stripFlags = new FStripDataFlags(Ar);
         var bCooked = Ar.ReadBoolean();
 

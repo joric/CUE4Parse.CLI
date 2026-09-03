@@ -11,6 +11,7 @@ public static class FOverridablePropertyBagCustomVersion
         BeforeCustomVersionWasAdded = 0,
 
         FixSerializer = 1,
+        MissingPropertyFlags = 2,
 
         // -----<new versions can be added above this line>-------------------------------------------------
         VersionPlusOne,
@@ -27,7 +28,8 @@ public static class FOverridablePropertyBagCustomVersion
 
         return Ar.Game switch
         {
-            < EGame.GAME_UE5_7 => Type.BeforeCustomVersionWasAdded,
+            < GAME_UE5_7 => Type.BeforeCustomVersionWasAdded,
+            < GAME_UE5_8 => Type.FixSerializer,
             _ => Type.LatestVersion
         };
     }

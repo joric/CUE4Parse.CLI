@@ -1,5 +1,4 @@
-﻿using System;
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.Objects.Core.Math;
 
@@ -36,6 +35,12 @@ namespace CUE4Parse.Utils
             x = BitConverter.Int32BitsToSingle(i);
             x = x * (1.5f - xhalf * x * x);
             return x;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool IsPowerOfTwo(int value)
+        {
+            return (value & (value - 1)) == 0;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]

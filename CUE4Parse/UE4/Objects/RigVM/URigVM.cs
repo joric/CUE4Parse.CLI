@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
@@ -9,6 +8,7 @@ namespace CUE4Parse.UE4.Objects.RigVM;
 public class URigVM : Assets.Exports.UObject
 {
     public uint CachedVMHash;
+    public uint CachedCanonicalVMHash;
     public string? ExecuteContextPath;
     public FRigVMPropertyPathDescription[]? ExternalPropertyPathDescriptions;
     public FName[]? FunctionNamesStorage;
@@ -79,6 +79,7 @@ public class URigVM : Assets.Exports.UObject
         {
             CachedVMHash = Ar.Read<uint>();
         }
+        CachedCanonicalVMHash = FRigVMObjectVersion.Get(Ar) >= FRigVMObjectVersion.Type.NativizedFunctionAsCallables ? Ar.Read<uint>() : CachedVMHash;
 
         ExternalPropertyPathDescriptions = Ar.ReadArray(() => new FRigVMPropertyPathDescription(Ar));
         FunctionNamesStorage = Ar.ReadArray(Ar.ReadFName);

@@ -1,4 +1,3 @@
-using System;
 
 namespace CUE4Parse.UE4.Assets.Exports.Nanite;
 
@@ -86,6 +85,12 @@ public static class NaniteConstants
     public const int NANITE_MAX_POSITION_PRECISION_504 = 43;
 
     public const int NANITE_VERTEX_COLOR_MODE_VARIABLE = 1;
+
+    public const int NANITE_MAX_BONE_INDEX_BITS = 16;
+    public const int NANITE_MAX_BLEND_WEIGHT_BITS = 16;
+
+    public const int NANITE_NUM_PACKED_CLUSTER_FLOAT4S = 8;
+    public const int NANITE_GPU_PAGE_HEADER_SIZE = 16;
 
     [Flags]
     public enum NANITE_CLUSTER_FLAG : uint

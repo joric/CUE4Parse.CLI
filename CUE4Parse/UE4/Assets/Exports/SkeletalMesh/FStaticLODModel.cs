@@ -1,11 +1,11 @@
-using System.Collections.Generic;
-using System.Linq;
 using CUE4Parse.GameTypes.FF7.Assets.Objects;
 using CUE4Parse.GameTypes.MK1.Assets.Objects;
+using CUE4Parse.GameTypes.Tencent.GangstarMirageCity.Objects.Meshes;
 using CUE4Parse.UE4.Assets.Exports.StaticMesh;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Exceptions;
+using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Objects.Meshes;
 using CUE4Parse.UE4.Objects.UObject;
@@ -137,7 +137,7 @@ public class FStaticLODModel
                     }
                 }
 
-                if (Ar.Ver < EUnrealEngineObjectUE4Version.REMOVE_EXTRA_SKELMESH_VERTEX_INFLUENCES)
+                if (Ar.Ver >= EUnrealEngineObjectUE3Version.ADDED_EXTRA_SKELMESH_VERTEX_INFLUENCES && Ar.Ver < EUnrealEngineObjectUE4Version.REMOVE_EXTRA_SKELMESH_VERTEX_INFLUENCES)
                     throw new ParserException("Unsupported: extra SkelMesh vertex influences (old mesh format)");
 
                 if (!stripDataFlags.IsClassDataStripped((byte) EClassDataStripFlag.CDSF_AdjacencyData))
@@ -151,10 +151,10 @@ public class FStaticLODModel
 
     public FStaticLODModel(FAssetArchive Ar, bool bHasVertexColors) : this()
     {
-        if (Ar.Game == EGame.GAME_SeaOfThieves) Ar.Position += 4;
+        if (Ar.Game == GAME_SeaOfThieves) Ar.Position += 4;
         var stripDataFlags = new FStripDataFlags(Ar);
         var skelMeshVer = FSkeletalMeshCustomVersion.Get(Ar);
-        if (Ar.Game == EGame.GAME_SeaOfThieves) Ar.Position += 4;
+        if (Ar.Game == GAME_SeaOfThieves) Ar.Position += 4;
 
         Sections = Ar.ReadArray(() => new FSkelMeshSection(Ar, Ar.IsFilterEditorOnly));
 
@@ -168,22 +168,33 @@ public class FStaticLODModel
             Indices = new FMultisizeIndexContainer(Ar.ReadBulkArray<uint>());
         }
 
-        ActiveBoneIndices = Ar.ReadArray<short>();
-
-        if (skelMeshVer < FSkeletalMeshCustomVersion.Type.CombineSectionWithChunk)
+        if (Ar.Ver < EUnrealEngineObjectUE3Version.DeprecatedOldLodformat)
         {
-            Chunks = Ar.ReadArray(() => new FSkelMeshChunk(Ar));
+            var RigidVertices = Ar.ReadArray(() => new FRigidVertex(Ar));
+            var SoftVertices = Ar.ReadArray(() => new FSoftVertex(Ar));
+
+            Chunks = Ar.ReadArray(() => new FSkelMeshChunk(RigidVertices, SoftVertices));
         }
 
-        Size = Ar.Read<int>();
-        if (!stripDataFlags.IsAudioVisualDataStripped())
-            NumVertices = Ar.Read<int>();
+        ActiveBoneIndices = Ar.ReadArray<short>();
+
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.DeprecatedOldLodformat)
+        {
+            if (skelMeshVer < FSkeletalMeshCustomVersion.Type.CombineSectionWithChunk)
+            {
+                Chunks = Ar.ReadArray(() => new FSkelMeshChunk(Ar));
+            }
+
+            Size = Ar.Read<int>();
+            if (!stripDataFlags.IsAudioVisualDataStripped())
+                NumVertices = Ar.Read<int>();
+        }
 
         RequiredBones = Ar.ReadArray<short>();
         if (!stripDataFlags.IsEditorDataStripped())
             RawPointIndices = new FIntBulkData(Ar);
 
-        if (Ar.Game != EGame.GAME_StateOfDecay2 && Ar.Ver >= EUnrealEngineObjectUE4Version.ADD_SKELMESH_MESHTOIMPORTVERTEXMAP)
+        if (Ar.Game != GAME_StateOfDecay2 && Ar.Ver >= EUnrealEngineObjectUE4Version.ADD_SKELMESH_MESHTOIMPORTVERTEXMAP)
         {
             MeshToImportVertexMap = Ar.ReadArray<int>();
             MaxImportVertex = Ar.Read<int>();
@@ -191,10 +202,18 @@ public class FStaticLODModel
 
         if (!stripDataFlags.IsAudioVisualDataStripped())
         {
-            NumTexCoords = Ar.Read<int>();
+            if (Ar.Ver >= EUnrealEngineObjectUE3Version.ADDED_MULTIPLE_UVS_TO_SKELETAL_MESH)
+            {
+                NumTexCoords = Ar.Read<int>();
+            }
+
             if (skelMeshVer < FSkeletalMeshCustomVersion.Type.SplitModelAndRenderData)
             {
-                VertexBufferGPUSkin = new FSkeletalMeshVertexBuffer(Ar);
+                if (Ar.Ver >= EUnrealEngineObjectUE3Version.USE_UMA_RESOURCE_ARRAY_MESH_DATA)
+                {
+                    VertexBufferGPUSkin = new FSkeletalMeshVertexBuffer(Ar);
+                }
+
                 if (skelMeshVer >= FSkeletalMeshCustomVersion.Type.UseSeparateSkinWeightBuffer)
                 {
                     var skinWeights = new FSkinWeightVertexBuffer(Ar, VertexBufferGPUSkin.bExtraBoneInfluences);
@@ -222,7 +241,10 @@ public class FStaticLODModel
                 {
                     if (skelMeshVer < FSkeletalMeshCustomVersion.Type.UseSharedColorBufferFormat)
                     {
-                        ColorVertexBuffer = new FSkeletalMeshVertexColorBuffer(Ar);
+                        if (Ar.Ver >= EUnrealEngineObjectUE3Version.ADDED_SKELETAL_MESH_VERTEX_COLORS)
+                        {
+                            ColorVertexBuffer = new FSkeletalMeshVertexColorBuffer(Ar);
+                        }
                     }
                     else
                     {
@@ -235,10 +257,10 @@ public class FStaticLODModel
                     throw new ParserException("Unsupported: extra SkelMesh vertex influences (old mesh format)");
 
                 // https://github.com/gildor2/UEViewer/blob/master/Unreal/UnrealMesh/UnMesh4.cpp#L1415
-                if (Ar.Game == EGame.GAME_StateOfDecay2)
+                if (Ar.Game == GAME_StateOfDecay2)
                     stripDataFlags.ClassStripFlags |= (byte) EClassDataStripFlag.CDSF_AdjacencyData;
 
-                if (Ar.Game == EGame.GAME_SeaOfThieves)
+                if (Ar.Game == GAME_SeaOfThieves)
                 {
                     var arraySize = Ar.Read<int>();
                     Ar.Position += arraySize * 44;
@@ -251,7 +273,7 @@ public class FStaticLODModel
                     Ar.Position += 13;
                 }
 
-                if (Ar.Game == EGame.GAME_FinalFantasy7Remake)
+                if (Ar.Game == GAME_FinalFantasy7Remake)
                 {
                     var checkInt = Ar.Read<int>();
                     if (checkInt >= 10)
@@ -293,16 +315,16 @@ public class FStaticLODModel
                 if (Ar.Ver >= EUnrealEngineObjectUE4Version.APEX_CLOTH && HasClothData())
                     ClothVertexBuffer = new FSkeletalMeshVertexClothBuffer(Ar);
 
-                if (Ar.Game == EGame.GAME_DaysGone)
+                if (Ar.Game == GAME_DaysGone)
                 {
                     _ = new FMultisizeIndexContainer(Ar);
                     Ar.Position += 12;
                 }
-                if (Ar.Game == EGame.GAME_StateOfDecay2) Ar.Position += 8;
+                if (Ar.Game == GAME_StateOfDecay2) Ar.Position += 8;
             }
         }
 
-        if (Ar.Game == EGame.GAME_SeaOfThieves)
+        if (Ar.Game == GAME_SeaOfThieves)
         {
             _ = new FMultisizeIndexContainer(Ar);
         }
@@ -313,11 +335,13 @@ public class FStaticLODModel
     {
         var stripDataFlags = new FStripDataFlags(Ar);
         var bIsLODCookedOut = false;
-        if (Ar.Game != EGame.GAME_Splitgate)
+        if (Ar.Game != GAME_Splitgate)
             bIsLODCookedOut = Ar.ReadBoolean();
         var bInlined = Ar.ReadBoolean();
 
         RequiredBones = Ar.ReadArray<short>();
+        if (Ar.Game is GAME_GearsofWarEDay) Ar.SkipArray<short>();// another bones array
+        if (Ar.Game is GAME_NeedForSpeedMobile) Ar.Position += 4;
         if (!stripDataFlags.IsAudioVisualDataStripped() && !bIsLODCookedOut)
         {
             Sections = new FSkelMeshSection[Ar.Read<int>()];
@@ -327,31 +351,37 @@ public class FStaticLODModel
                 Sections[i].SerializeRenderItem(Ar);
             }
 
+            if (Ar.Game is GAME_LordOfMysteries)
+            {
+                Ar.Position += 4;
+                Ar.SkipArray<byte>();
+            }
+
             ActiveBoneIndices = Ar.ReadArray<short>();
 
-            if (Ar.Game is EGame.GAME_KenaBridgeofSpirits)
+            if (Ar.Game is GAME_KenaBridgeofSpirits)
                 Ar.ReadArray<byte>(); // EAssetType_array1
-            if (Ar.Game is EGame.GAME_FragPunk)
+            if (Ar.Game is GAME_FragPunk)
                 Ar.Read<int>();
 
             Ar.Position += 4; //var buffersSize = Ar.Read<uint>();
 
-            if (Ar is { Game: >= EGame.GAME_UE5_8, IsFilterEditorOnly: true })
+            if (Ar is { Game: >= GAME_UE5_8, IsFilterEditorOnly: true })
             {
                 var bDiscardBulkData = false;
-                
+
                 var bulkData = new FByteBulkData(Ar);
                 if (bulkData.Header.ElementCount == 0)
                 {
                     bDiscardBulkData = true;
                 }
-                
+
                 if (!bDiscardBulkData)
                     SerializeAvailabilityInfo(Ar, !stripDataFlags.IsClassDataStripped((byte) EClassDataStripFlag.CDSF_AdjacencyData));
 
                 // We should be checking if bInlined is true too but if we do we loose high-res LODs on majority of SKs
                 // Removing the check would have been probabilistic if we had serialization issue but since we don't it's fine
-                
+
                 if (bulkData is { Data: not null, Header.ElementCount: > 0 })
                 {
                     using var tempAr = new FByteArchive("LodReader", bulkData.Data, Ar.Versions);
@@ -362,7 +392,7 @@ public class FStaticLODModel
             {
                 SerializeStreamedData(Ar, bHasVertexColors);
 
-                if (Ar.Game == EGame.GAME_RogueCompany)
+                if (Ar.Game == GAME_RogueCompany)
                 {
                     Ar.Position += 12; // 1 (Long) + 2^16 (Int)
                     var elementSize = Ar.Read<int>();
@@ -371,7 +401,7 @@ public class FStaticLODModel
                         Ar.SkipBulkArrayData();
                 }
 
-                if (Ar.Game == EGame.GAME_MortalKombat1 && Ar.ReadBoolean())
+                if (Ar.Game == GAME_MortalKombat1 && Ar.ReadBoolean())
                 {
                     AdditionalBuffer = new FMorphTargetVertexInfoBufferMK1(Ar);
                 }
@@ -379,27 +409,32 @@ public class FStaticLODModel
             else
             {
                 var bulk = new FByteBulkData(Ar);
-                if (bulk.Header.ElementCount > 0 && bulk.Data != null)
+                var bulkData = bulk.Data;
+                if (bulk.Header.ElementCount > 0 && bulkData != null)
                 {
-                    if (Ar.Game == EGame.GAME_FinalFantasy7Rebirth)
+                    if (Ar.Game is GAME_FinalFantasy7Rebirth)
                     {
-                        FF7FStaticLodModel.ReadFStaticLodModel(Ar, bHasVertexColors, bulk, out Indices, out VertexBufferGPUSkin, out ColorVertexBuffer, out NumVertices, out NumTexCoords);
+                        FF7FStaticLodModel.ReadFStaticLodModel(Ar, bHasVertexColors, bulkData, out Indices, out VertexBufferGPUSkin, out ColorVertexBuffer, out NumVertices, out NumTexCoords);
                         return;
                     }
 
-                    using (var tempAr = new FByteArchive("LodReader", bulk.Data, Ar.Versions))
+                    using (var tempAr = new FByteArchive("LodReader", bulkData, Ar.Versions))
                     {
                         SerializeStreamedData(tempAr, bHasVertexColors);
                     }
 
                     SerializeAvailabilityInfo(Ar, !stripDataFlags.IsClassDataStripped((byte) EClassDataStripFlag.CDSF_AdjacencyData));
                 }
+                else if (Ar.Game is GAME_GangstarMirageCity)
+                {
+                    SerializeAvailabilityInfo(Ar, !stripDataFlags.IsClassDataStripped((byte) EClassDataStripFlag.CDSF_AdjacencyData));
+                }
             }
         }
 
-        if (Ar.Game is EGame.GAME_ReadyOrNot or EGame.GAME_HellLetLoose or EGame.GAME_DarkPicturesAnthologyManofMedan or
-            EGame.GAME_DarkPicturesAnthologyTheDevilinMe) Ar.Position += 4;
-        if (Ar.Game is EGame.GAME_DarkPicturesAnthologyLittleHope && !bIsLODCookedOut) Ar.Position += 4;
+        if (Ar.Game is GAME_ReadyOrNot or GAME_HellLetLoose or GAME_DarkPicturesAnthologyManofMedan or
+            GAME_DarkPicturesAnthologyTheDevilinMe or GAME_AliensFireteamElite or GAME_Back4Blood) Ar.Position += 4;
+        if (Ar.Game is GAME_DarkPicturesAnthologyLittleHope && !bIsLODCookedOut) Ar.Position += 4;
     }
 
     public void SerializeRenderItem_Legacy(FAssetArchive Ar, bool bHasVertexColors, byte numVertexColorChannels)
@@ -425,7 +460,7 @@ public class FStaticLODModel
             var staticMeshVertexBuffer = new FStaticMeshVertexBuffer(Ar);
             var skinWeightVertexBuffer = new FSkinWeightVertexBuffer(Ar, VertexBufferGPUSkin.bExtraBoneInfluences);
 
-            if (!bHasVertexColors && Ar.Game == EGame.GAME_Borderlands3)
+            if (!bHasVertexColors && Ar.Game == GAME_Borderlands3)
             {
                 for (var i = 0; i < numVertexColorChannels; i++)
                 {
@@ -451,17 +486,11 @@ public class FStaticLODModel
             VertexBufferGPUSkin.VertsFloat = new FGPUVertFloat[NumVertices];
             for (var i = 0; i < VertexBufferGPUSkin.VertsFloat.Length; i++)
             {
-                VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat
-                {
-                    Pos = positionVertexBuffer.Verts[i],
-                    Infs = skinWeightVertexBuffer.Weights[i],
-                    Normal = staticMeshVertexBuffer.UV[i].Normal,
-                    UV = staticMeshVertexBuffer.UV[i].UV
-                };
+                VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat(positionVertexBuffer.Verts[i], skinWeightVertexBuffer.Weights[i], staticMeshVertexBuffer.UV[i]);
             }
         }
 
-        if (Ar.Game >= EGame.GAME_UE4_23)
+        if (Ar.Game >= GAME_UE4_23)
         {
             var skinWeightProfilesData = new FSkinWeightProfilesData(Ar);
         }
@@ -474,11 +503,13 @@ public class FStaticLODModel
         Indices = new FMultisizeIndexContainer(Ar);
         VertexBufferGPUSkin = new FSkeletalMeshVertexBuffer { bUseFullPrecisionUVs = true };
 
-        var positionVertexBuffer = new FPositionVertexBuffer(Ar);
+        var positionVertexBuffer = Ar.Game is GAME_GangstarMirageCity ? new FGangstarPositionVertexBuffer(Ar) : new FPositionVertexBuffer(Ar);
         var staticMeshVertexBuffer = new FStaticMeshVertexBuffer(Ar);
         var skinWeightVertexBuffer = new FSkinWeightVertexBuffer(Ar, VertexBufferGPUSkin.bExtraBoneInfluences);
 
-        if (Ar.Game == EGame.GAME_EvilWest) Ar.Position += 22;
+        if (Ar.Game is GAME_EvilWest) Ar.Position += 22;
+        if (Ar.Game is GAME_GearsofWarEDay && Ar.Peek<int>() == 0) bHasVertexColors = false;
+        if (Ar.Game is GAME_GangstarMirageCity) AdditionalBuffer = positionVertexBuffer;
 
         if (bHasVertexColors)
         {
@@ -489,14 +520,14 @@ public class FStaticLODModel
         if (FUE5ReleaseStreamObjectVersion.Get(Ar) < FUE5ReleaseStreamObjectVersion.Type.RemovingTessellation &&
             !stripDataFlags.IsClassDataStripped((byte) EClassDataStripFlag.CDSF_AdjacencyData))
         {
-            if (Ar.Game != EGame.GAME_GTATheTrilogyDefinitiveEdition && Ar.Game != EGame.GAME_FinalFantasy7Rebirth)
+            if (Ar.Game != GAME_GTATheTrilogyDefinitiveEdition && Ar.Game != GAME_FinalFantasy7Rebirth)
                 AdjacencyIndexBuffer = new FMultisizeIndexContainer(Ar);
         }
 
         if (HasClothData())
             ClothVertexBuffer = new FSkeletalMeshVertexClothBuffer(Ar);
 
-        if (Ar.Game is EGame.GAME_InfinityNikki && Sections.Any(x => x.CustomData.HasValue && x.CustomData.Value > 0))
+        if (Ar.Game is GAME_InfinityNikki && Sections.Any(x => x.CustomData.HasValue && x.CustomData.Value > 0))
         {
             _ = new FMultisizeIndexContainer(Ar);
             _ = new FMultisizeIndexContainer(Ar);
@@ -504,7 +535,7 @@ public class FStaticLODModel
             _ = new FMultisizeIndexContainer(Ar);
         }
 
-        if (Ar.Game == EGame.GAME_Spectre)
+        if (Ar.Game == GAME_Spectre)
         {
             _ = new FMultisizeIndexContainer(Ar);
         }
@@ -513,7 +544,7 @@ public class FStaticLODModel
 
         if (Ar.Versions["SkeletalMesh.HasRayTracingData"])
         {
-            if (Ar.Game >= EGame.GAME_UE5_6)
+            if (Ar.Game >= GAME_UE5_6)
             {
                 Ar.Position += 6 * 4; // FRayTracingGeometryOfflineDataHeader
                 Ar.ReadBulkArray<byte>();
@@ -525,7 +556,7 @@ public class FStaticLODModel
         }
 
         if (FUE5SpecialProjectStreamObjectVersion.Get(Ar) >= FUE5SpecialProjectStreamObjectVersion.Type.SerializeSkeletalMeshMorphTargetRenderData ||
-                Ar.Game is EGame.GAME_TheQuarry)
+                Ar.Game is GAME_TheQuarry)
         {
             bool bSerializeCompressedMorphTargets = Ar.ReadBoolean();
             if (bSerializeCompressedMorphTargets)
@@ -555,19 +586,13 @@ public class FStaticLODModel
         VertexBufferGPUSkin.VertsFloat = new FGPUVertFloat[NumVertices];
         for (var i = 0; i < VertexBufferGPUSkin.VertsFloat.Length; i++)
         {
-            VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat
-            {
-                Pos = positionVertexBuffer.Verts[i],
-                Infs = skinWeightVertexBuffer.Weights[i],
-                Normal = staticMeshVertexBuffer.UV[i].Normal,
-                UV = staticMeshVertexBuffer.UV[i].UV
-            };
+            VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat(positionVertexBuffer.Verts[i], skinWeightVertexBuffer.Weights[i], staticMeshVertexBuffer.UV[i]);
         }
     }
 
     private void SerializeAvailabilityInfo(FArchive Ar, bool bAdjacencyData)
     {
-        var bytesToSkip = 1 + 4; // FMultiSizeIndexContainer::SerializeMetaData 1x uint8 + 1x int32 
+        var bytesToSkip = 1 + 4; // FMultiSizeIndexContainer::SerializeMetaData 1x uint8 + 1x int32
         if (FUE5ReleaseStreamObjectVersion.Get(Ar) < FUE5ReleaseStreamObjectVersion.Type.RemovingTessellation && bAdjacencyData)
             bytesToSkip += 1 + 4; // FMultiSizeIndexContainer::SerializeMetaData 1x uint8 + 1x int32
 
@@ -575,10 +600,12 @@ public class FStaticLODModel
         bytesToSkip += 4 * 2; // FPositionVertexBuffer::SerializeMetaData 2x uint32
         bytesToSkip += 4 * 2; // FColorVertexBuffer::SerializeMetaData 2x uint32
         bytesToSkip += FSkinWeightVertexBuffer.MetadataSize(Ar);
-        
+
         Ar.Position += bytesToSkip;
-        
-        if (Ar.Game == EGame.GAME_StarWarsJediSurvivor) Ar.Position += 4;
+
+        if (Ar.Game is GAME_StarWarsJediSurvivor) Ar.Position += 4;
+        if (Ar.Game is GAME_NeedForSpeedMobile) Ar.Position += 32;
+        if (Ar.Game is GAME_GangstarMirageCity) Ar.Position += 38 + 6; // Position and tangent compression metadata
         if (HasClothData())
         {
             // FSkeletalMeshVertexClothBuffer::SerializeMetaData
@@ -592,8 +619,8 @@ public class FStaticLODModel
         }
 
         _ = Ar.ReadArray(Ar.ReadFName); // FSkinWeightProfilesData::SerializeMetaData
-        
-        if (Ar.Versions["SkeletalMesh.HasRayTracingData"] && Ar.Game >= EGame.GAME_UE5_6)
+
+        if (Ar.Versions["SkeletalMesh.HasRayTracingData"] && Ar.Game >= GAME_UE5_6)
         {
             Ar.Position += 6 * 4; // FRayTracingGeometryOfflineDataHeader
         }

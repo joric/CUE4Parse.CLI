@@ -1,11 +1,7 @@
-using System;
-using System.Collections.Generic;
+using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-
 using CUE4Parse.Compression;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Exports.Texture;
@@ -13,11 +9,7 @@ using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
-
 using OffiUtils;
-
-using Serilog;
-
 using static CUE4Parse.Compression.Compression;
 using static CUE4Parse.UE4.Objects.Core.Misc.ECompressionFlags;
 using static CUE4Parse.UE4.Objects.UObject.FPackageFileSummary;
@@ -26,6 +18,7 @@ namespace CUE4Parse.UE4.Readers
 {
     public abstract class FArchive : RandomAccessStream, ICloneable
     {
+
         public VersionContainer Versions;
         public EGame Game
         {
@@ -37,6 +30,11 @@ namespace CUE4Parse.UE4.Readers
             get => Versions.Ver;
             set => Versions.Ver = value;
         }
+        public EUnrealEngineObjectLicenseeUEVersion LicenseeVer
+        {
+            get => Versions.LicenseeVer;
+            set => Versions.LicenseeVer = value;
+        }
         public ETexturePlatform Platform
         {
             get => Versions.Platform;
@@ -46,7 +44,7 @@ namespace CUE4Parse.UE4.Readers
 
         public bool SupportPartialReads => Game switch
         {
-            EGame.GAME_GameForPeace or EGame.GAME_Rennsport or EGame.GAME_DragonQuestXI => false,
+            GAME_GameForPeace or GAME_Rennsport or GAME_DragonQuestXI => false,
             _ => true,
         };
 
@@ -95,6 +93,18 @@ namespace CUE4Parse.UE4.Readers
         {
             var bytes = ReadBytes(length);
             Unsafe.CopyBlockUnaligned(ref ptr[0], ref bytes[0], (uint) length);
+        }
+
+        public virtual T Peek<T>()
+        {
+            var size = Unsafe.SizeOf<T>();
+            var saved = Position;
+            var buffer = ArrayPool<byte>.Shared.Rent(size);
+            Read(buffer, 0,  size);
+            Position = saved;
+            var result = Unsafe.ReadUnaligned<T>(ref buffer[0]);
+            ArrayPool<byte>.Shared.Return(buffer);
+            return result;
         }
 
         public virtual T Read<T>()
@@ -198,17 +208,22 @@ namespace CUE4Parse.UE4.Readers
         {
             var pos = Position;
             T[] array = ReadArray(elementCount, getter);
-            if (Game != EGame.GAME_HogwartsLegacy && Position != pos + array.Length * elementSize)
+            if (Game != GAME_HogwartsLegacy && Position != pos + array.Length * elementSize)
                 throw new ParserException($"RawArray item size mismatch: expected {elementSize}, serialized {(Position - pos) / array.Length}");
             return array;
         }
 
+        private bool HasBulkArraySizeHeader =>
+            Ver >= EUnrealEngineObjectUE3Version.ADDED_BULKSERIALIZE_SANITY_CHECKING ||
+            (Game == GAME_AvaGlobal && Ver >= EUnrealEngineObjectUE3Version.SHARED_SHADER_PARAMS);
+
         public T[] ReadBulkArray<T>() where T : struct
         {
-            if (Ver < EUnrealEngineObjectUE3Version.ADDED_BULKSERIALIZE_SANITY_CHECKING)
+            if (!HasBulkArraySizeHeader)
             {
                 return ReadArray<T>();
             }
+
             var elementSize = Read<int>();
             var elementCount = Read<int>();
             if (elementCount == 0)
@@ -224,7 +239,7 @@ namespace CUE4Parse.UE4.Readers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public T[] ReadBulkArray<T>(Func<T> getter)
         {
-            if (Ver < EUnrealEngineObjectUE3Version.ADDED_BULKSERIALIZE_SANITY_CHECKING)
+            if (!HasBulkArraySizeHeader)
             {
                 return ReadArray(getter);
             }
@@ -234,13 +249,17 @@ namespace CUE4Parse.UE4.Readers
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SkipBulkArrayData()
+        public void SkipBulkArrayData(int elementSize = -1)
         {
-            if (Ver < EUnrealEngineObjectUE3Version.ADDED_BULKSERIALIZE_SANITY_CHECKING)
+            if (HasBulkArraySizeHeader)
             {
-                throw new ParserException("Cannot skip bulk array data for UE3 versions before ADDED_BULKSERIALIZE_SANITY_CHECKING");
+                elementSize = Read<int>();
             }
-            var elementSize = Read<int>();
+            else if (elementSize < 0)
+            {
+                throw new ParserException($"element size must be provided for games without bulk array size header (Game={Game}, Ver={Ver})");
+            }
+
             var elementCount = Read<int>();
             Position += elementSize * elementCount;
         }
@@ -262,7 +281,32 @@ namespace CUE4Parse.UE4.Readers
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void SkipMultipleFixedArrays(int [] sizes)
+        public void SkipArray(Action skip)
+        {
+            var length = Read<int>();
+            for (var i = 0; i < length; i++)
+            {
+                skip();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SkipArray<T>()
+        {
+            var length = Read<int>();
+            var size = Unsafe.SizeOf<T>();
+            Position += length * size;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SkipArray<T>(int length)
+        {
+            var size = Unsafe.SizeOf<T>();
+            Position += length * size;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void SkipMultipleFixedArrays(int[] sizes)
         {
             foreach (var size in sizes)
             {
@@ -398,6 +442,26 @@ namespace CUE4Parse.UE4.Readers
             }
         }
 
+        public int ReadCompactIndex()
+        {
+            byte b = Read<byte>();
+            int sign = b & 0x80;
+            int shift = 6;
+            int r = b & 0x3F;
+
+            if ((b & 0x40) != 0)
+            {
+                do
+                {
+                    b = Read<byte>();
+                    r |= (b & 0x7F) << shift;
+                    shift += 7;
+                } while ((b & 0x80) != 0);
+            }
+
+            return sign != 0 ? -r : r;
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public int Read7BitEncodedInt()
         {
@@ -444,6 +508,15 @@ namespace CUE4Parse.UE4.Readers
             }
 
             Position += strlength;
+        }
+
+        public virtual ReadOnlySpan<byte> ReadSpan(int length)
+        {
+            CheckReadSize(length);
+
+            var result = new byte[length];
+            Read(result, 0, length);
+            return result;
         }
 
         public virtual string ReadFString()
@@ -512,8 +585,18 @@ namespace CUE4Parse.UE4.Readers
             if (length == 0) return string.Empty;
             if (length < 0) throw new ParserException($"Negative Utf8String length '{length}'");
             if (length > Length - Position) throw new ParserException($"Invalid Utf8String length '{length}'");
-            
-            return Encoding.UTF8.GetString(ReadBytes(length));
+
+            return Encoding.UTF8.GetString(ReadSpan(length));
+        }
+
+        public string ReadFAnsiString() => ReadFAnsiString(Read<int>());
+        public virtual string ReadFAnsiString(int length)
+        {
+            if (length == 0) return string.Empty;
+            if (length < 0) throw new ParserException($"Negative AnsiString length '{length}'");
+            if (length > Length - Position) throw new ParserException($"Invalid AnsiString length '{length}'");
+
+            return Encoding.Latin1.GetString(ReadSpan(length));
         }
 
         public float ReadFReal() => Ver >= EUnrealEngineObjectUE5Version.LARGE_WORLD_COORDINATES ? (float)Read<double>() : Read<float>();
@@ -525,13 +608,13 @@ namespace CUE4Parse.UE4.Readers
             throw new InvalidOperationException("Generic FArchive can't read UObject's");
         }
 
-        public void SerializeCompressedNew(byte[] dest, int length, string compressionFormatToDecodeOldV1Files, ECompressionFlags flags, bool bTreatBufferAsFileReader, out long outPartialReadLength)
+        public void SerializeCompressedNew(Span<byte> dest, int length, string compressionFormatToDecodeOldV1Files, ECompressionFlags flags, bool bTreatBufferAsFileReader, out long outPartialReadLength)
         {
             // CompressionFormatToEncode can be changed freely without breaking loading of old files
             // CompressionFormatToDecodeOldV1Files must match what was used to encode old files, cannot change
 
             // Serialize package file tag used to determine endianess.
-            var packageFileTag = Read<FCompressedChunkInfo>();
+            var packageFileTag = new FCompressedChunkInfo(this);
 
             // v1 header did not store CompressionFormatToDecode
             //	assume it was CompressionFormatToDecodeOldV1Files (usually Zlib)
@@ -547,7 +630,7 @@ namespace CUE4Parse.UE4.Readers
             // low 32 bits of ARCHIVE_V2_HEADER_TAG are == PACKAGE_FILE_TAG
             const ulong ARCHIVE_V2_HEADER_TAG = PACKAGE_FILE_TAG | ((ulong) 0x22222222 << 32);
 
-            if (packageFileTag.CompressedSize == PACKAGE_FILE_TAG)
+            if (packageFileTag.CompressedSize == PACKAGE_FILE_TAG || packageFileTag.CompressedSize == PACKAGE_FILE_TAG_LOS)
             {
                 // v1 header, not swapped
                 bHeaderWasValid = true;
@@ -601,7 +684,7 @@ namespace CUE4Parse.UE4.Readers
             }
 
             // Read in base summary, contains total sizes :
-            var summary = Read<FCompressedChunkInfo>();
+            var summary = new FCompressedChunkInfo(this);
 
             if (bWasByteSwapped)
             {
@@ -636,7 +719,7 @@ namespace CUE4Parse.UE4.Readers
             long totalChunkUncompressedSize = 0;
             for (var chunkIndex = 0; chunkIndex < totalChunkCount; chunkIndex++)
             {
-                compressionChunks[chunkIndex] = Read<FCompressedChunkInfo>();
+                compressionChunks[chunkIndex] = new FCompressedChunkInfo(this);
                 if (bWasByteSwapped)
                 {
                     compressionChunks[chunkIndex].CompressedSize = (long) BYTESWAP_ORDER64((ulong) compressionChunks[chunkIndex].CompressedSize);
@@ -667,7 +750,7 @@ namespace CUE4Parse.UE4.Readers
                 // Decompress into dest pointer directly.
                 try
                 {
-                    Decompress(compressedBuffer, 0, (int) chunk.CompressedSize, dest, destPos, (int) chunk.UncompressedSize, compressionFormat);
+                    Decompress(compressedBuffer.AsSpan(0, (int) chunk.CompressedSize), dest[destPos..(destPos + (int) chunk.UncompressedSize)], compressionFormat);
                 }
                 catch (Exception e)
                 {
@@ -699,11 +782,53 @@ namespace CUE4Parse.UE4.Readers
             }
         }
 
+        public void DumpBytesToHex(int size, int maxBytesPerLine = 16) {
+#if DEBUG
+            var savePos = Position;
+            var bytes = ReadBytes(size);
+            Position = savePos;
+
+            var sb = new StringBuilder();
+            for (var i = 0; i < bytes.Length; i++) {
+                if (i % maxBytesPerLine == 0) {
+                    sb.Append($"{i+Position:X8} ");
+                }
+                sb.Append($"{bytes[i]:X2} ");
+                if (i % maxBytesPerLine == maxBytesPerLine - 1) {
+                    sb.AppendLine();
+                }
+            }
+            Console.Write(sb.ToString()+"\n");
+#endif
+        }
+
+        public void DumpBytesToFile(int size) {
+#if DEBUG
+            var savePos = Position;
+            var bytes = ReadBytes(int.Min(size, (int) (Length - Position)));
+            Position = savePos;
+            var f = new FileInfo(Path.GetTempPath() + $"cue4parse_temp/{Name}_s{savePos}_size_{bytes.Length}.bin");
+            f.Directory.Create();
+
+            using var fs = f.OpenWrite();
+            fs.Write(bytes, 0, bytes.Length);
+            fs.Close();
+            Log.Information("Dumped {Name} to {Path}", Name, f.FullName);
+            Process.Start("explorer.exe", $"/select,\"{f.FullName}\"");
+#endif
+        }
+
         public abstract object Clone();
 
         public struct FCompressedChunkInfo
         {
             public long CompressedSize, UncompressedSize;
+
+            public FCompressedChunkInfo(FArchive Ar)
+            {
+                CompressedSize = Ar.Game < GAME_UE4_0 ? Ar.Read<uint>() : Ar.Read<long>();
+                UncompressedSize = Ar.Game < GAME_UE4_0 ? Ar.Read<uint>() : Ar.Read<long>();
+            }
         }
     }
 }

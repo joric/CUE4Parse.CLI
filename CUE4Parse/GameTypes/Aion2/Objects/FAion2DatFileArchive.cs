@@ -1,9 +1,10 @@
-using System;
 using System.Text;
+using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
+using CUE4Parse.Utils;
 
 namespace CUE4Parse.GameTypes.Aion2.Objects;
 
@@ -16,10 +17,7 @@ public sealed class FAion2DatFileArchive(byte[] data, VersionContainer versions)
     public static void DecryptData(Span<byte> data, byte[] key)
     {
         if (data.Length <= 4 && key.Length == 4) return;
-        for (int i = 0; i < data.Length; i++)
-        {
-            data[i] ^= key[i & key.Length - 1];
-        }
+        TensorUtils.Xor(data, key);
     }
 
     private string ReadAion2String(byte[]? xorKey = null)
@@ -44,12 +42,22 @@ public sealed class FAion2DatFileArchive(byte[] data, VersionContainer versions)
         }
         else
         {
-            if (xorKey is null) DecryptData(strBuffer, _xorKeyLong);
+            if (xorKey is null)
+                DecryptData(strBuffer, _xorKeyLong);
             return Encoding.Unicode.GetString(strBuffer[..^2]);
         }
     }
 
+    public string ReadUnencryptedFString() => base.ReadFString();
+
     public string ReadL10NString() => ReadAion2String(_xorKeyShort);
     public override string ReadFString() => ReadAion2String();
     public override FName ReadFName() => ReadFString();
+}
+
+public sealed class FAion2AssetArchive(FAion2DatFileArchive Ar) : FAssetArchive(Ar, null)
+{
+    private readonly FAion2DatFileArchive _aionAr = Ar;
+
+    public override FName ReadFName() => _aionAr.ReadFName();
 }

@@ -1,5 +1,4 @@
-﻿using System;
-using CUE4Parse.UE4.Objects.Core.Misc;
+﻿using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Readers;
 
 namespace CUE4Parse.UE4.IO.Objects.OnDemand.V2;
@@ -41,7 +40,7 @@ public class FOnDemandContainerEntry : IOnDemandContainerEntry
         TagSetIndicesCount = Ar.Read<uint>();
         UTocHash = new FSHAHash(Ar);
         ContainerFlags = Ar.Read<EOnDemandContainerEntryFlags>();
-        FileContainerFlags = Ar.Read<EIoContainerFlags>();
+        FileContainerFlags = (EIoContainerFlags)Ar.Read<uint>();
         PartitionCount = Ar.Read<uint>();
 
         Ar.Position += 32;

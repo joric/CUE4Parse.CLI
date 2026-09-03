@@ -23,7 +23,7 @@ public class UModelComponent : UPrimitiveComponent
         if (Ar.Ver <= EUnrealEngineObjectUE4Version.REMOVE_ZONES_FROM_MODEL)
             Ar.Position += 4; // DummyZoneIndex
         Elements = Ar.ReadArray(() => new FModelElement(Ar));
-        ComponentIndex = Ar.Read<int>();
+        ComponentIndex = Ar.Game < GAME_UE4_0 ? Ar.Read<ushort>() : Ar.Read<int>();
         Nodes = Ar.ReadArray<ushort>();
     }
 }
@@ -45,17 +45,28 @@ public class FModelElement
         if (FRenderingObjectVersion.Get(Ar) < FRenderingObjectVersion.Type.MapBuildDataSeparatePackage)
         {
             LegacyMapBuildData = new FMeshMapBuildData();
-            LegacyMapBuildData.LightMap = Ar.Read<ELightMapType>() switch
+            if (Ar.Ver < EUnrealEngineObjectUE3Version.LIGHTMAP_NON_UOBJECT)
             {
-                ELightMapType.LMT_1D => new FLegacyLightMap1D(Ar),
-                ELightMapType.LMT_2D => new FLightMap2D(Ar),
-                _ => null
-            };
-            LegacyMapBuildData.ShadowMap = Ar.Read<EShadowMapType>() switch
+                Ar.Position += sizeof(int); // FPackageIndex - LightMap
+            }
+            else
             {
-                EShadowMapType.SMT_2D => new FShadowMap2D(Ar),
-                _ => null
-            };
+                LegacyMapBuildData.LightMap = Ar.Read<ELightMapType>() switch
+                {
+                    ELightMapType.LMT_1D => new FLegacyLightMap1D(Ar),
+                    ELightMapType.LMT_2D => new FLightMap2D(Ar),
+                    _ => null
+                };
+            }
+
+            if (Ar.Ver >= EUnrealEngineObjectUE4Version.PRECOMPUTED_SHADOW_MAPS_BSP)
+            {
+                LegacyMapBuildData.ShadowMap = Ar.Read<EShadowMapType>() switch
+                {
+                    EShadowMapType.SMT_2D => new FShadowMap2D(Ar),
+                    _ => null
+                };
+            }
         }
 
         if (FRenderingObjectVersion.Get(Ar) >= FRenderingObjectVersion.Type.FixedBSPLightmaps)
@@ -66,6 +77,11 @@ public class FModelElement
         Component = new FPackageIndex(Ar);
         Material = new FPackageIndex(Ar);
         Nodes = Ar.ReadArray<ushort>();
+
+        if (Ar.Game < GAME_UE4_0)
+        {
+            Ar.ReadArray(() => new FPackageIndex(Ar)); // ShadowMaps
+        }
 
         if (FRenderingObjectVersion.Get(Ar) < FRenderingObjectVersion.Type.MapBuildDataSeparatePackage)
         {

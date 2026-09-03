@@ -1,4 +1,3 @@
-using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.Readers;
@@ -46,7 +45,7 @@ namespace CUE4Parse.UE4.Objects.Core.Math
 
         public FRotator(FArchive Ar)
         {
-            if (Ar.Game < EGame.GAME_UE4_0)
+            if (Ar.Game < GAME_UE4_0)
             {
                 const float scale = 360f / 65536f;
                 Pitch = Ar.Read<int>() * scale;
@@ -184,7 +183,7 @@ namespace CUE4Parse.UE4.Objects.Core.Math
                                                                     MathF.Abs(NormalizeAxis(Yaw - r.Yaw)) <= tolerance &&
                                                                     MathF.Abs(NormalizeAxis(Roll - r.Roll)) <= tolerance;
 
-        public void Serialize(FArchiveWriter Ar)
+        public readonly void Serialize(FArchiveWriter Ar)
         {
             Ar.Write(Pitch);
             Ar.Write(Yaw);

@@ -1,4 +1,3 @@
-using System;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Objects.Core.Misc;
@@ -30,7 +29,7 @@ public class USoundWave : USoundBase
         else if (TryGetValue(out FName loadingBehavior, "LoadingBehavior"))
         {
             bStreaming = !loadingBehavior.IsNone && loadingBehavior.Text != "ESoundWaveLoadingBehavior::ForceInline";
-            if (Ar.Game == EGame.GAME_Stray && bStreaming)
+            if (Ar.Game == GAME_Stray && bStreaming)
                 bStreaming = loadingBehavior.Text != "ESoundWaveLoadingBehavior::RetainOnLoad";
         }
 
@@ -42,7 +41,7 @@ public class USoundWave : USoundBase
 
         var bCooked = flags.HasFlag(ESoundWaveFlag.CookedFlag);
 
-        if (Ar.Game >= EGame.GAME_UE5_4 && bCooked)
+        if (Ar.Game >= GAME_UE5_4 && bCooked)
         {
             SerializeCuePoints(Ar);
         }

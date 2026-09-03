@@ -1,23 +1,19 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Readers;
 using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Assets.Exports.Rig;
 
 public class UDNAAsset : UObject
 {
+    
     public DNAVersion Version;
     public DNAVersion LayerVersion;
     public Dictionary<string, IRawBase> Sections;
     public Dictionary<string, IRawBase> Layers;
     public Lazy<byte[]>? DNAData;
-    public string DnaFileName;
+    public string? DnaFileName;
 
     private readonly byte[] _signature = "DNA"u8.ToArray();
     private readonly byte[] _eof = "AND"u8.ToArray();
@@ -26,7 +22,7 @@ public class UDNAAsset : UObject
     public override void Deserialize(FAssetArchive Ar, long validPos)
     {
         base.Deserialize(Ar, validPos);
-        DnaFileName = GetOrDefault(nameof(DnaFileName), string.Empty);
+        DnaFileName = GetOrDefault<string>(nameof(DnaFileName));
 
         if (FDNAAssetCustomVersion.Get(Ar) >= FDNAAssetCustomVersion.Type.BeforeCustomVersionWasAdded)
         {
@@ -53,20 +49,43 @@ public class UDNAAsset : UObject
             {
                 var sectionLookupTable = new SectionLookupTable(endianAr);
                 var indexTable = new IndexTable(sectionLookupTable, Version);
-                if (!ReadLayers(endianAr, indexTable, startPos, out Sections, false))
+                if (!ReadLayers(endianAr, Version.FileVersion, indexTable, startPos, out Sections, false))
                     return;
 
                 var eof = endianAr.ReadBytes(3);
                 if (!eof.SequenceEqual(_eof))
                     throw new InvalidDataException("Invalid end of file signature");
 
-                if (Ar.Game == EGame.GAME_ArenaBreakoutInfinite)
+                if (Ar.Game is GAME_ArenaBreakoutInfinite or GAME_ArenaBreakoutMobile)
                     return;
+                if (Ar.Game is GAME_AliensFireteamElite2)
+                {
+                    startPos = endianAr.Position;
+
+                    signature = endianAr.ReadBytes(3);
+                    if (!signature.SequenceEqual(_signature))
+                        throw new InvalidDataException("Invalid layer start signature");
+
+                    LayerVersion = new DNAVersion(endianAr);
+                    sectionLookupTable = new SectionLookupTable(endianAr);
+                    indexTable = new IndexTable(sectionLookupTable, Version);
+                    ReadLayers(endianAr, LayerVersion.FileVersion, indexTable, startPos, out Layers, false);
+                    eof = endianAr.ReadBytes(3);
+                    if (!eof.SequenceEqual(_eof))
+                        throw new InvalidDataException("Invalid end of file signature");
+                    return;
+                }
+            }
+            else if (Version.FileVersion >= FileVersion.v26)
+            {
+                var indexTable = new IndexTable(endianAr);
+                ReadLayers(endianAr, Version.FileVersion, indexTable, startPos, out Sections);
+                return;
             }
             else
             {
                 var indexTable = new IndexTable(endianAr);
-                if (!ReadLayers(endianAr, indexTable, startPos, out Sections))
+                if (!ReadLayers(endianAr, Version.FileVersion, indexTable, startPos, out Sections))
                     return;
             }
 
@@ -78,11 +97,11 @@ public class UDNAAsset : UObject
 
             LayerVersion = new DNAVersion(endianAr);
             var layersIndexTable = new IndexTable(endianAr);
-            ReadLayers(endianAr, layersIndexTable, startPos, out Layers);
+            ReadLayers(endianAr, LayerVersion.FileVersion, layersIndexTable, startPos, out Layers);
         }
     }
 
-    private bool ReadLayers(FArchiveBigEndian endianAr, IndexTable indexTable, long startPos, out Dictionary<string, IRawBase> layers, bool validateSizes = true)
+    private bool ReadLayers(FArchiveBigEndian endianAr, FileVersion fileVersion, IndexTable indexTable, long startPos, out Dictionary<string, IRawBase> layers, bool validateSizes = true)
     {
         bool result = true;
         layers = new Dictionary<string, IRawBase>(indexTable.Entries.Length);
@@ -96,13 +115,15 @@ public class UDNAAsset : UObject
                 {
                     "desc" => new RawDescriptor(endianAr),
                     "defn" => new RawDefinition(endianAr),
+                    "dsce" => new RawDescriptorExt(endianAr, fileVersion), // v27
                     "bhvr" => new RawBehavior(endianAr),
                     "geom" => new RawGeometry(endianAr),
-                    "mlbh" => new RawMachineLearnedBehavior(endianAr),
-                    "rbfb" => new RawRBFBehavior(endianAr),
-                    "rbfe" => new RawRBFBehaviorExt(endianAr),
-                    "jbmd" => new RawJointBehaviorMetadata(endianAr),
-                    "twsw" => new RawTwistSwingBehavior(endianAr),
+                    "mlbe" => new RawMachineLearnedBehaviorExt(endianAr), // v26
+                    "mlbh" => new RawMachineLearnedBehavior(endianAr), // v23
+                    "rbfb" => new RawRBFBehavior(endianAr), // v24
+                    "rbfe" => new RawRBFBehaviorExt(endianAr), // v25
+                    "jbmd" => new RawJointBehaviorMetadata(endianAr),  // v24
+                    "twsw" => new RawTwistSwingBehavior(endianAr), // v24
                     _ => throw new NotSupportedException($"Type '{entry.Id}' is currently not supported")
                 };
             }
@@ -142,7 +163,7 @@ public class UDNAAsset : UObject
         writer.WritePropertyName(nameof(Version));
         serializer.Serialize(writer, Version);
 
-        if (Sections.TryGetValue("desc", out var descriptor))
+        if (Sections is not null && Sections.TryGetValue("desc", out var descriptor))
         {
             writer.WritePropertyName("Descriptor");
             serializer.Serialize(writer, descriptor);

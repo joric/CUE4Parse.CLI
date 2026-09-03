@@ -1,7 +1,5 @@
-using System.IO;
 using System.Runtime.InteropServices;
 using CUE4Parse.UE4.Readers;
-using CUE4Parse.UE4.Versions;
 using Newtonsoft.Json;
 
 namespace CUE4Parse.UE4.Assets.Exports.Nanite;
@@ -25,7 +23,7 @@ public class FNaniteStreamableData
     public FNaniteStreamableData(FByteArchive Ar, FNaniteResources resources, uint pageIndex)
     {
         FixupChunk = new FFixupChunk(Ar);
-        
+
         // origin of all the offsets in the page cluster header
         PageDiskHeaderOffset = Ar.Position;
         PageDiskHeader = new FPageDiskHeader(Ar);
@@ -59,7 +57,38 @@ public class FNaniteStreamableData
         for (uint clusterIndex = 0; clusterIndex < NumClusters; clusterIndex++)
         {
             Ar.Position = clusterOrigin + 16 * clusterIndex;
-            Clusters[clusterIndex] = new FCluster(Ar, stride);
+            var cluster = new FCluster(Ar, stride);
+
+            if (Ar.Game >= GAME_UE5_6)
+            {
+                cluster.MaterialTotalLength = cluster.bVoxel ? cluster.BrickDataNum : cluster.NumTris;
+                var sizeofFClusterBoneInfluence = 4;
+                var clusterBoneInfluenceAddress = GPUPageHeaderOffset + NaniteConstants.NANITE_GPU_PAGE_HEADER_SIZE + NaniteConstants.NANITE_NUM_PACKED_CLUSTER_FLOAT4S * 16 * PageGPUHeader.NumClusters;
+                var voxelBoneInfluenceAddress = clusterBoneInfluenceAddress + NumClusters * PageGPUHeader.MaxClusterBoneInfluences * sizeofFClusterBoneInfluence;
+                voxelBoneInfluenceAddress = (voxelBoneInfluenceAddress + 15) & ~15u;	// Align to match builder behavior. //VOXELTODO: We don't seem to actually need more than 4 byte alignment. Fix the builder and save the ~8 bytes per page instead?
+                if (cluster.bVoxel)
+                {
+                    cluster.ClusterBoneInfluenceAddress = (uint)(voxelBoneInfluenceAddress + clusterIndex * 4);
+                    cluster.ClusterBoneInfluenceStride	= PageGPUHeader.NumClusters * 4;
+                }
+                else
+                {
+                    cluster.ClusterBoneInfluenceAddress = (uint)(clusterBoneInfluenceAddress + clusterIndex * sizeofFClusterBoneInfluence);
+                    cluster.ClusterBoneInfluenceStride	= (uint)(PageGPUHeader.NumClusters * sizeofFClusterBoneInfluence);
+                }
+
+                var list = new uint[cluster.NumClusterBoneInfluences];
+                Ar.Position = cluster.ClusterBoneInfluenceAddress;
+                for (var i = 0; i < cluster.NumClusterBoneInfluences; i++)
+                {
+                    list[i] = Ar.Read<uint>();
+                    Ar.Position += cluster.ClusterBoneInfluenceStride - 4;
+                }
+
+                cluster.ClusterBoneInfluences = list;
+            }
+
+            Clusters[clusterIndex] = cluster;
         }
 
         for (uint clusterIndex = 0; clusterIndex < NumClusters; clusterIndex++)
@@ -105,12 +134,12 @@ public readonly struct FClusterDiskHeader
 
     public FClusterDiskHeader(FArchive Ar)
     {
-        if (Ar.Game >= EGame.GAME_UE5_7) DecodeInfoOffset = Ar.Read<uint>();
+        if (Ar.Game >= GAME_UE5_7) DecodeInfoOffset = Ar.Read<uint>();
         IndexDataOffset = Ar.Read<uint>();
         PageClusterMapOffset = Ar.Read<uint>();
         VertexRefDataOffset = Ar.Read<uint>();
 
-        if (Ar.Game >= EGame.GAME_UE5_4)
+        if (Ar.Game >= GAME_UE5_4)
         {
             LowBytesDataOffset = Ar.Read<uint>();
             MidBytesDataOffset = Ar.Read<uint>();

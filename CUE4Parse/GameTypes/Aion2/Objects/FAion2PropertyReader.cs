@@ -1,18 +1,14 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.UObject;
-using CUE4Parse.UE4.Readers;
 
 namespace CUE4Parse.GameTypes.Aion2.Objects;
 
 public static class FAion2PropertyReader
 {
-    public static FPropertyTagType? ReadPropertyTagType(FArchive Ar, TypeMappings mappings, string? propertyType, FPropertyTagData? tagData, bool readtag = true,  ReadType type = ReadType.NORMAL)
+    public static FPropertyTagType? ReadPropertyTagType(FAion2DatFileArchive Ar, TypeMappings mappings, string? propertyType, FPropertyTagData? tagData, bool readtag = true, ReadType type = ReadType.NORMAL)
     {
         return propertyType switch
         {
@@ -31,15 +27,16 @@ public static class FAion2PropertyReader
             "NameProperty" => new NameProperty(Ar.ReadFName()),
             "SetProperty" => new SetProperty(ReadSet(Ar, mappings, tagData)),
             "MapProperty" => new MapProperty(ReadMap(Ar, mappings, tagData)),
-            "StrProperty" => new StrProperty(Ar.ReadFString()),
+            "StrProperty" => new StrProperty(Ar.ReadUnencryptedFString()),
             "StructProperty" => new StructProperty(ReadStruct(Ar, mappings, tagData?.StructType)),
+            "TextProperty" => new TextProperty(new FAion2AssetArchive(Ar), type),
             "UInt16Property" => new UInt16Property(Ar.Read<ushort>()),
             "UInt32Property" => new UInt32Property(Ar.Read<uint>()),
             "UInt64Property" => new UInt64Property(Ar.Read<ulong>()),
             _ => null,
         };
 
-        void SkipStructTag(FArchive Ar)
+        void SkipStructTag(FAion2DatFileArchive Ar)
         {
             Ar.SkipFString();
             Ar.SkipFString();
@@ -49,7 +46,7 @@ public static class FAion2PropertyReader
             if (Ar.ReadFlag()) Ar.Position += 16;
         }
 
-        UScriptSet ReadSet(FArchive Ar, TypeMappings mappings, FPropertyTagData? tagData)
+        UScriptSet ReadSet(FAion2DatFileArchive Ar, TypeMappings mappings, FPropertyTagData? tagData)
         {
             var pos = Ar.Position;
             var length = Ar.Read<int>();
@@ -61,23 +58,26 @@ public static class FAion2PropertyReader
             return new UScriptSet(ReadArray(Ar, mappings, tagData, true).Properties);
         }
 
-        UScriptArray ReadArray(FArchive Ar, TypeMappings mappings, FPropertyTagData? tagData, bool readtag = true)
+        UScriptArray ReadArray(FAion2DatFileArchive Ar, TypeMappings mappings, FPropertyTagData? tagData, bool readtag = true)
         {
-            var pos = Ar.Position;
             var length = Ar.Read<int>();
             var properties = new List<FPropertyTagType>(length);
-            if (readtag && tagData?.InnerType is "StructProperty") SkipStructTag(Ar);
+            if (readtag && tagData?.InnerType is "StructProperty")
+                SkipStructTag(Ar);
+
+            var innerType = tagData?.InnerType;
+            var innerTypeData = tagData?.InnerTypeData;
+
             for (int i = 0; i < length; i++)
             {
-                properties.Add(ReadPropertyTagType(Ar, mappings, tagData?.InnerType, tagData?.InnerTypeData, readtag, ReadType.ARRAY));
+                properties.Add(ReadPropertyTagType(Ar, mappings, innerType, innerTypeData, readtag, ReadType.ARRAY)!);
             }
 
-            return new UScriptArray(properties, tagData?.InnerType, tagData?.InnerTypeData);
+            return new UScriptArray(properties, innerType!, innerTypeData);
         }
 
-        UScriptMap ReadMap(FArchive Ar, TypeMappings mappings, FPropertyTagData? tagData)
+        UScriptMap ReadMap(FAion2DatFileArchive Ar, TypeMappings mappings, FPropertyTagData? tagData)
         {
-            var pos = Ar.Position;
             var length = Ar.Read<int>();
             for (int i = 0; i < length; i++)
             {
@@ -94,16 +94,17 @@ public static class FAion2PropertyReader
             return new UScriptMap(properties);
         }
 
-        FScriptStruct ReadStruct(FArchive Ar, TypeMappings mappings, string? structName)
+        FScriptStruct ReadStruct(FAion2DatFileArchive Ar, TypeMappings mappings, string? structName)
         {
+            if (structName == null)
+                throw new ParserException("Struct name is missing");
             if (!mappings.Types.TryGetValue(structName, out var propMappings))
-            {
                 throw new ParserException(Ar, $"No property mappings found for struct {structName}");
-            }
 
             var propCount = propMappings.CountProperties(true);
             var properties = new List<FPropertyTag>(propCount);
-            
+            var previousProperty = "none";
+
             foreach (var index in Enumerable.Range(0, propCount))
             {
                 propMappings.TryGetValue(index, out var info);
@@ -127,13 +128,18 @@ public static class FAion2PropertyReader
                 }
                 catch (ParserException e)
                 {
-                    throw new ParserException($"Failed to read FPropertyTagType {tag.TagData?.ToString() ?? tag.PropertyType.Text} {tag.Name.Text}", e);
+                    throw new ParserException(
+                        $"Failed to read FPropertyTagType {tag.TagData?.ToString() ?? tag.PropertyType.Text} " +
+                        $"{tag.Name.Text} at {pos}; previous {previousProperty}", e);
                 }
 
                 tag.Size = (int) (Ar.Position - pos);
 
                 if (tag.Tag != null)
+                {
                     properties.Add(tag);
+                    previousProperty = $"{tag.Name.Text}@{pos}+{tag.Size}";
+                }
                 else
                     throw new ParserException(Ar, $"Failed to serialize property {info.MappingType.Type} {info.Name}. Can't proceed with serialization (Serialized {properties.Count} properties until now)");
 
@@ -150,7 +156,7 @@ public static class FAion2PropertyReader
                     EItemType.Misc => ReadStruct(Ar, mappings, "ItemTableMiscInfo"),
                     _ => new FScriptStruct(new FStructFallback()),
                 };
-                
+
                 properties.AddRange((additionalProperties.StructType as FStructFallback)?.Properties ?? []);
             }
 

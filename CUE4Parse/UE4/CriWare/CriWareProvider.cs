@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Security.Cryptography;
 using CUE4Parse.FileProvider;
 using CUE4Parse.UE4.Assets.Exports.CriWare;
@@ -10,7 +6,6 @@ using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.CriWare.Decoders;
 using CUE4Parse.UE4.CriWare.Readers;
 using CUE4Parse.UE4.Objects.UObject;
-using Serilog;
 using UE4Config.Parsing;
 
 namespace CUE4Parse.UE4.CriWare;
@@ -34,14 +29,15 @@ public class CriWareExtractedSound
 /// 5.1  | DRAGON BALL: Sparking! ZERO (0xB7B8B9442F99A221), Jujutsu Kaisen Cursed Clash (0x0DAA5EA10B547CDE)
 ///      | SAND LAND (0x0CA47CCB51010000), SWORD ART ONLINE Fractured Daydream
 /// 5.3  | Demon Slayer -Kimetsu no Yaiba- The Hinokami Chronicles 2
-/// 5.4  | Double Dragon Revive, FANTASY LIFE i: The Girl Who Steals Time (unknown external awb encryption)
+/// 5.4  | Double Dragon Revive, FANTASY LIFE i: The Girl Who Steals Time
 ///      | Rune Factory: Guardians of Azuma, Sonic Racing: CrossWorlds (0x00720FB46101DF7A)
-///      
+///
 /// </summary>
 public class CriWareProvider
 {
     private readonly record struct AwbLocation(string Path, bool InProvider);
-    private Dictionary<string, AwbLocation> _streamingAwbLookup = [];
+    private Dictionary<string, List<AwbLocation>> _streamingAwbLookup = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, AwbLocation> _streamingAwbHashLookup = [];
 
     private readonly IFileProvider _provider;
     private readonly string _gameDirectory;
@@ -76,9 +72,7 @@ public class CriWareProvider
             ?.Tag?.GetValue<FStructFallback>();
 
         if (awbDirectory?.TryGetValue(out string awbDir, "Path") == true)
-        {
             CreateAwbLookupTable(_provider, awbDir);
-        }
 
         return ExtractCriWareSoundsInternal(cueSheet.AcbReader, null, cueSheet.Name);
     }
@@ -133,12 +127,11 @@ public class CriWareProvider
             {
                 if (wave.EncodeType is not (EEncodeType.HCA or EEncodeType.HCA_ALT))
                 {
-                    Log.Warning($"Skipping waveform extraction. Waveform encoding type '{wave.EncodeType}' is not supported");
+                    Log.Warning("Skipping waveform extraction. Waveform encoding type '{EncodingType}' is not supported", wave.EncodeType);
                     continue;
                 }
 
                 var hcaData = TryGetAudioData(memoryAwb, streamingAwb, wave);
-
                 if (hcaData == null || hcaData.Length == 0)
                     continue;
 
@@ -193,12 +186,11 @@ public class CriWareProvider
                         continue;
                     if (!TryGetSupportedExtension(wave.EncodeType, out var extension))
                     {
-                        Log.Warning($"Skipping waveform extraction. Waveform encoding type '{wave.EncodeType}' is not supported");
+                        Log.Warning("Skipping waveform extraction. Waveform encoding type '{EncodingType}' is not supported", wave.EncodeType);
                         continue;
                     }
 
                     var audioData = TryGetAudioData(memoryAwb, streamingAwb, wave);
-
                     if (audioData == null || audioData.Length == 0)
                         continue;
 
@@ -214,7 +206,7 @@ public class CriWareProvider
             int waveformsCount = memoryAwb?.Waves.Count ?? 0 + streamingAwb?.Waves.Count ?? 0;
             if (visitedWaveforms.Count < waveformsCount)
             {
-                Log.Warning($"Not all waveforms were extracted from ACB '{baseName}'. Extracted {visitedWaveforms.Count} out of {waveformsCount}.");
+                Log.Warning("Not all waveforms were extracted from ACB '{AcbName}'. Extracted {ExtractedCount} out of {WaveformCount}.", baseName, visitedWaveforms.Count, waveformsCount);
             }
         }
         else
@@ -253,11 +245,9 @@ public class CriWareProvider
             case EEncodeType.HCA_ALT:
                 extension = "hca";
                 return true;
-
             case EEncodeType.ADX:
                 extension = "adx";
                 return true;
-
             default:
                 extension = null!;
                 return false;
@@ -288,25 +278,29 @@ public class CriWareProvider
         var hash = acb.TryGetTableValue<byte[]>("StreamAwb", "Hash");
         if (hash != null)
         {
-            var hashString = Convert.ToHexString(hash);
-            if (!_streamingAwbLookup.TryGetValue(hashString, out var awbLocation))
+            var awbName = Path.ChangeExtension(acb.Name, ".awb");
+            _streamingAwbLookup.TryGetValue(awbName, out var locations);
+
+            AwbLocation? awbLocation = locations?.Count == 1
+                ? locations[0]
+                : FindAwbByHash(locations ?? _streamingAwbLookup.Values.SelectMany(static value => value), hash);
+
+            if (awbLocation is null)
                 return null;
 
-            Stream awbStream;
-            if (awbLocation.InProvider)
+            if (awbLocation.Value.InProvider)
             {
-                if (!_provider.TryGetGameFile(awbLocation.Path, out var gameFile) ||
-                    !gameFile.TryCreateReader(out var reader))
+                if (!_provider.TryGetGameFile(awbLocation.Value.Path, out var gameFile) || !gameFile.TryCreateReader(out var reader))
                     return null;
 
-                awbStream = reader;
+                awb = new AwbReader(reader);
             }
             else
             {
-                awbStream = File.OpenRead(awbLocation.Path);
+                Stream awbStream = File.OpenRead(awbLocation.Value.Path);
+                awbStream = CriWareAwbDecryption.Wrap(awbStream, awbLocation.Value.Path, _provider.Versions.Game);
+                awb = new AwbReader(awbStream);
             }
-
-            awb = new AwbReader(awbStream);
         }
 
         return awb;
@@ -335,7 +329,7 @@ public class CriWareProvider
         if (!string.IsNullOrEmpty(token?.Value))
         {
             _criWareContentDir = token.Value.Replace('\\', '/');
-            Log.Information($"CriWare content directory found at: {token.Value}");
+            Log.Information("CriWare content directory found at: {ContentDirectory}", token.Value);
         }
     }
 
@@ -346,7 +340,15 @@ public class CriWareProvider
         if (string.IsNullOrEmpty(_criWareContentDir) && string.IsNullOrEmpty(overrideAwbDir))
             return;
 
-        var awbLookup = new Dictionary<string, AwbLocation>();
+        var awbLookup = new Dictionary<string, List<AwbLocation>>(StringComparer.OrdinalIgnoreCase);
+
+        void AddAwb(string path, bool inProvider)
+        {
+            var name = Path.GetFileName(path);
+            if (!awbLookup.TryGetValue(name, out var locations))
+                awbLookup[name] = locations = [];
+            locations.Add(new AwbLocation(path, inProvider));
+        }
 
         var searchDirs = new List<string>(2);
         if (!string.IsNullOrEmpty(_criWareContentDir))
@@ -359,33 +361,57 @@ public class CriWareProvider
             .Where(f => searchDirs.Any(d => f.Replace('\\', '/').Contains(d)));
 
         foreach (var file in awbFiles)
-        {
-            using var stream = File.OpenRead(file);
-            var hashBytes = MD5.HashData(stream);
-            var hashString = Convert.ToHexString(hashBytes);
-
-            awbLookup[hashString] = new AwbLocation(file, false);
-        }
+            AddAwb(file, false);
 
         // From provider
         var providerAwbFiles = provider.Files
-            .Where(kv => kv.Key.EndsWith(".awb", StringComparison.OrdinalIgnoreCase)
-                         && searchDirs.Any(d => kv.Key.Replace('\\', '/').Contains(d)));
+            .Where(kv => kv.Key.EndsWith(".awb", StringComparison.OrdinalIgnoreCase) && searchDirs.Any(d => kv.Key.Replace('\\', '/').Contains(d)));
 
-        foreach (var (path, gameFile) in providerAwbFiles)
+        foreach (var (path, _) in providerAwbFiles)
+            AddAwb(path, true);
+
+        _streamingAwbLookup = awbLookup;
+    }
+
+    // Searching by AWB hash is slow although it's actually the proper way to do it
+    // only do it as a last resort when there are multiple AWBs with the same name or there's no match
+    private AwbLocation? FindAwbByHash(IEnumerable<AwbLocation> locations, byte[] hash)
+    {
+        var hashString = Convert.ToHexString(hash);
+        if (_streamingAwbHashLookup.TryGetValue(hashString, out var cachedLocation))
+            return cachedLocation;
+
+        foreach (var location in locations)
         {
-            if (!gameFile.TryCreateReader(out var reader))
-                continue;
-
-            using (reader)
+            Stream stream;
+            if (location.InProvider)
             {
-                var hashBytes = MD5.HashData(reader);
-                var hashString = Convert.ToHexString(hashBytes);
+                if (!_provider.TryGetGameFile(location.Path, out var gameFile) || !gameFile.TryCreateReader(out var reader))
+                    continue;
+                stream = reader;
+            }
+            else
+            {
+                stream = File.OpenRead(location.Path);
+            }
 
-                awbLookup[hashString] = new AwbLocation(path, true);
+            using (stream)
+            {
+                var candidateHash = Convert.ToHexString(GetAwbHash(stream, location.Path));
+                _streamingAwbHashLookup[candidateHash] = location;
+                if (candidateHash == hashString)
+                {
+                    return location;
+                }
             }
         }
 
-        _streamingAwbLookup = awbLookup;
+        return null;
+    }
+
+    private byte[] GetAwbHash(Stream stream, string awbName)
+    {
+        using var decryptedStream = CriWareAwbDecryption.CreateDecryptingStream(stream, awbName, _provider.Versions.Game, true);
+        return MD5.HashData(decryptedStream ?? stream);
     }
 }

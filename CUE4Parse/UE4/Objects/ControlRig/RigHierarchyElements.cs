@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using CUE4Parse.UE4.Assets.Exports.ControlRig;
 using CUE4Parse.UE4.Assets.Exports.ControlRig.Rigs.Elements;
 using CUE4Parse.UE4.Objects.Core.Math;
@@ -104,6 +103,9 @@ public class FRigBaseElement
             _ = FRigBoolMetadata.Read(Ar, false);
         }
     }
+
+    public virtual int GetNumTransforms() => 0;
+    public virtual int GetNumCurves() => 0;
 }
 
 public class FRigTransformElement : FRigBaseElement
@@ -116,6 +118,8 @@ public class FRigTransformElement : FRigBaseElement
         if (inSettings.SerializationPhase == ESerializationPhase.StaticData)
             PoseStorage = new FRigCurrentAndInitialTransform(Ar, inSettings);
     }
+
+    public override int GetNumTransforms() => 4;
 }
 
 public class FRigSingleParentElement : FRigTransformElement
@@ -596,6 +600,8 @@ public class FRigControlElement : FRigMultiParentElement
             PreferredEulerAngles = new FRigPreferredEulerAngles(Ar);
         }
     }
+
+    public override int GetNumTransforms() => 12;
 }
 
 public class FRigCurveElement : FRigBaseElement
@@ -620,6 +626,8 @@ public class FRigCurveElement : FRigBaseElement
 
         Value = Ar.Read<float>();
     }
+
+    public override int GetNumCurves() => 1; // NUM_CURVES
 }
 
 public struct FRigRigidBodySettings(FArchive Ar)
