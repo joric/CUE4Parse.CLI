@@ -3,6 +3,7 @@ using CUE4Parse.Encryption.Aes;
 using CUE4Parse.FileProvider;
 using CUE4Parse.FileProvider.Vfs;
 using CUE4Parse.MappingsProvider;
+using CUE4Parse.MappingsProvider.Usmap;
 using CUE4Parse.UE4.AssetRegistry;
 using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Assets.Exports;
@@ -24,18 +25,20 @@ using CUE4Parse.UE4.Versions;
 using CUE4Parse.UE4.Wwise;
 using CUE4Parse.Utils;
 using CUE4Parse_Conversion;
+using CUE4Parse_Conversion.Exporters;
+using CUE4Parse_Conversion.Options;
+using CUE4Parse_Conversion.Writers.UEFormat.Enums;
 using CUE4Parse_Conversion.Animations;
 using CUE4Parse_Conversion.Meshes;
 using CUE4Parse_Conversion.Sounds;
 using CUE4Parse_Conversion.Textures;
-using CUE4Parse_Conversion.Textures.BC;
-using CUE4Parse_Conversion.UEFormat.Enums;
 using Newtonsoft.Json;
 using Serilog;
 using Serilog.Core;
 using Serilog.Events;
 using SkiaSharp;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.CommandLine;
 using System.Diagnostics;
@@ -79,18 +82,25 @@ internal static class Program
         var overwrite   = new Option<bool>    (new[] { "-y", "--yes" },         "Overwrite existing files");
         var verbose     = new Option<bool>    (new[] { "-v", "--verbose" },     "Enable verbose output");
 
-        // ExporterOptions flags - modding-friendly defaults
-        var meshFormat      = new Option<string>(new[] { "--mesh-format" },      () => "ActorX",      "Mesh format: ActorX (psk), Gltf2 (glb), UEFormat (uemodel), OBJ");
-        var animFormat      = new Option<string>(new[] { "--anim-format" },      () => "ActorX",      "Animation format: ActorX (psa), UEFormat (ueanim)");
-        var textureFormat   = new Option<string>(new[] { "--texture-format" },   () => "Png",         "Texture format: Png, Jpeg, Tga, Dds");
-        var materialFormat  = new Option<string>(new[] { "--material-format" },  () => "AllLayersNoRef", "Material format: FirstLayer, AllLayersNoRef, AllLayers");
-        var lodFormat       = new Option<string>(new[] { "--lod-format" },       () => "AllLods",     "LOD format: FirstLod, AllLods");
-        var socketFormat    = new Option<string>(new[] { "--socket-format" },    () => "Bone",        "Socket format: Bone, Socket, None");
-        var naniteFormat    = new Option<string>(new[] { "--nanite-format" },    () => "AllLayersNaniteFirst", "Nanite format: OnlyNaniteLOD, OnlyNormalLODs, AllLayersNaniteFirst, AllLayersNaniteLast");
-        var exportMorph     = new Option<bool>(new[] { "--export-morph-targets" },  () => true,  "Export morph targets");
-        var exportMats      = new Option<bool>(new[] { "--export-materials" },       () => true,  "Export materials with meshes");
-        var exportHdr       = new Option<bool>(new[] { "--export-hdr-as-hdr" },      () => true,  "Export HDR textures as .hdr");
-        var compression     = new Option<string>(new[] { "--compression" },          () => "None", "Compression: None, GZIP, ZSTD");
+        // ExportOptions flags - modding-friendly defaults
+        // NOTE: AnimFormat no longer exists - animations follow --mesh-format now.
+        //       LodFormat -> --mesh-quality (Highest/Lowest/All).
+        //       MaterialFormat -> --material-depth (TopLayerOnly/AllLayersNoRef/AllLayers).
+        //       NaniteMeshFormat values renamed (NaniteOnly/NoNanite/NaniteFirst/NaniteLast).
+        //       Platform -> --texture-platform.
+        var meshFormat       = new Option<string>(new[] { "--mesh-format" },        () => "ActorX",       "Mesh format: ActorX (psk), Gltf2 (glb), UEFormat (uemodel), USD (usda)");
+        var textureFormat    = new Option<string>(new[] { "--texture-format" },     () => "Png",          "Texture format: Png, Jpeg, Tga, Webp");
+        var materialDepth    = new Option<string>(new[] { "--material-depth" },     () => "TopLayerOnly", "Material depth: TopLayerOnly, AllLayersNoRef, AllLayers");
+        var meshQuality      = new Option<string>(new[] { "--mesh-quality" },       () => "Highest",      "Mesh quality: Highest, Lowest, All");
+        var socketFormat     = new Option<string>(new[] { "--socket-format" },      () => "Bone",         "Socket format: Bone, Socket, None");
+        var naniteFormat     = new Option<string>(new[] { "--nanite-format" },      () => "NaniteFirst",  "Nanite format: NaniteOnly, NoNanite, NaniteFirst, NaniteLast");
+        var texturePlatform  = new Option<string>(new[] { "--texture-platform" },   () => "DesktopMobile","Texture platform: DesktopMobile, XboxAndPlaystation4, NintendoSwitch, Playstation5");
+        var textureQuality   = new Option<int>   (new[] { "--texture-quality" },    () => 100,            "Texture quality 1-100");
+        var exportAllMips    = new Option<bool>  (new[] { "--export-all-mips" },    () => false,          "Export all texture mip levels");
+        var exportMorph      = new Option<bool>  (new[] { "--export-morph-targets" }, () => true,  "Export morph targets");
+        var exportMats       = new Option<bool>  (new[] { "--export-materials" },     () => true,  "Export materials with meshes");
+        var exportHdr        = new Option<bool>  (new[] { "--export-hdr-as-hdr" },    () => true,  "Export HDR textures as .hdr");
+        var compression      = new Option<string>(new[] { "--compression" },          () => "None", "Compression: None, GZIP, ZSTD");
 
         static string GetExamples()
         {
@@ -105,8 +115,8 @@ internal static class Program
             sb.AppendLine("  Export a single package to stdout in json format:");
             sb.AppendLine("    cue4parse -i MyGame -p Assets/MyAsset.uasset -f json");
             sb.AppendLine();
-            sb.AppendLine("  Export with PSK meshes and PSA animations:");
-            sb.AppendLine("    cue4parse -i MyGame -p */SkeletalMeshes/* -o Exports --mesh-format ActorX --anim-format ActorX");
+            sb.AppendLine("  Export with PSK meshes (and PSA animations, following --mesh-format):");
+            sb.AppendLine("    cue4parse -i MyGame -p */SkeletalMeshes/* -o Exports --mesh-format ActorX");
             sb.AppendLine();
             sb.AppendLine("  Export packages from list, overwrite existing files:");
             sb.AppendLine("    cue4parse -i MyGame -c packages.txt -o Exports -y");
@@ -120,7 +130,8 @@ internal static class Program
         var root = new RootCommand($"CUE4Parse.CLI {cliVersion} (built with CUE4Parse {libVersion})")
         {
             sources, pakFile, destination, inputs, files, game, keys, mappings, format, list, overwrite, verbose,
-            meshFormat, animFormat, textureFormat, materialFormat, lodFormat, socketFormat, naniteFormat,
+            meshFormat, textureFormat, materialDepth, meshQuality, socketFormat, naniteFormat,
+            texturePlatform, textureQuality, exportAllMips,
             exportMorph, exportMats, exportHdr, compression
         };
 
@@ -140,12 +151,14 @@ internal static class Program
                 context.ParseResult.GetValueForOption(overwrite),
                 context.ParseResult.GetValueForOption(verbose),
                 context.ParseResult.GetValueForOption(meshFormat) ?? "ActorX",
-                context.ParseResult.GetValueForOption(animFormat) ?? "ActorX",
                 context.ParseResult.GetValueForOption(textureFormat) ?? "Png",
-                context.ParseResult.GetValueForOption(materialFormat) ?? "AllLayersNoRef",
-                context.ParseResult.GetValueForOption(lodFormat) ?? "AllLods",
+                context.ParseResult.GetValueForOption(materialDepth) ?? "TopLayerOnly",
+                context.ParseResult.GetValueForOption(meshQuality) ?? "Highest",
                 context.ParseResult.GetValueForOption(socketFormat) ?? "Bone",
-                context.ParseResult.GetValueForOption(naniteFormat) ?? "AllLayersNaniteFirst",
+                context.ParseResult.GetValueForOption(naniteFormat) ?? "NaniteFirst",
+                context.ParseResult.GetValueForOption(texturePlatform) ?? "DesktopMobile",
+                context.ParseResult.GetValueForOption(textureQuality),
+                context.ParseResult.GetValueForOption(exportAllMips),
                 context.ParseResult.GetValueForOption(exportMorph),
                 context.ParseResult.GetValueForOption(exportMats),
                 context.ParseResult.GetValueForOption(exportHdr),
@@ -184,8 +197,9 @@ internal static class Program
     private static async Task ExecuteAsync(
         string[] sources, string? pakFilePath, string? destination, string[] inputs, string[] files,
         string game, string[] keys, string? mappings, string format, bool list, bool overwrite, bool verbose,
-        string meshFormatStr, string animFormatStr, string textureFormatStr, string materialFormatStr,
-        string lodFormatStr, string socketFormatStr, string naniteFormatStr,
+        string meshFormatStr, string textureFormatStr, string materialDepthStr, string meshQualityStr,
+        string socketFormatStr, string naniteFormatStr, string texturePlatformStr,
+        int textureQuality, bool exportAllMips,
         bool exportMorph, bool exportMats, bool exportHdr, string compressionStr)
     {
         Program._overwrite = overwrite;
@@ -211,8 +225,10 @@ internal static class Program
             return;
         }
 
+        var texturePlatformValue = ParseEnum<ETexturePlatform>(texturePlatformStr);
+
         // Create Version
-        var version = new VersionContainer(gameVersion, ETexturePlatform.DesktopMobile);
+        var version = new VersionContainer(gameVersion, texturePlatformValue);
 
         // Determine mode: --pak (single file) vs -i (directory)
         var singlePakMode = !string.IsNullOrEmpty(pakFilePath);
@@ -313,14 +329,6 @@ internal static class Program
         Console.Error.WriteLine($"Total assets: {provider.Files.Count}");
         Console.Error.WriteLine($"Output format: {format}");
 
-        // init detex library for BCD encoding
-        var detexPath = Path.Combine(Path.GetTempPath(), DetexHelper.DLL_NAME);
-
-        if (!File.Exists(detexPath))
-            await DetexHelper.LoadDllAsync(detexPath);
-
-        DetexHelper.Initialize(detexPath);
-
         // scan all inputs, add package path (wildcards allowed)
         var packagePaths = new List<string>();
 
@@ -384,22 +392,24 @@ internal static class Program
 
         ExportType type = ExportType.Texture | ExportType.Sound | ExportType.Mesh | ExportType.Animation | ExportType.Other;
 
-        // Build ExporterOptions from CLI flags
-        var options = new ExporterOptions
-        {
-            LodFormat = ParseEnum<ELodFormat>(lodFormatStr),
-            MeshFormat = ParseEnum<EMeshFormat>(meshFormatStr),
-            AnimFormat = ParseEnum<EAnimFormat>(animFormatStr),
-            MaterialFormat = ParseEnum<EMaterialFormat>(materialFormatStr),
-            TextureFormat = ParseEnum<ETextureFormat>(textureFormatStr),
-            CompressionFormat = ParseEnum<EFileCompressionFormat>(compressionStr),
-            Platform = version.Platform,
-            SocketFormat = ParseEnum<ESocketFormat>(socketFormatStr),
-            NaniteMeshFormat = ParseEnum<ENaniteMeshFormat>(naniteFormatStr),
-            ExportMorphTargets = exportMorph,
-            ExportMaterials = exportMats,
-            ExportHdrTexturesAsHdr = exportHdr
-        };
+        // Build ExportOptions from CLI flags.
+        // ExportOptions is a primary-constructor class now (all fields readonly),
+        // so everything is passed as constructor arguments instead of an object initializer.
+        var options = new ExportOptions(
+            meshFormat: ParseEnum<EMeshFormat>(meshFormatStr),
+            naniteMeshFormat: ParseEnum<ENaniteMeshFormat>(naniteFormatStr),
+            meshQuality: ParseEnum<EMeshQuality>(meshQualityStr),
+            texturePlatform: texturePlatformValue,
+            textureFormat: ParseEnum<ETextureFormat>(textureFormatStr),
+            textureQuality: textureQuality,
+            exportHdrTexturesAsHdr: exportHdr,
+            exportAllTextureMips: exportAllMips,
+            materialDepth: ParseEnum<EMaterialDepth>(materialDepthStr),
+            exportMaterials: exportMats,
+            exportMorphTargets: exportMorph,
+            socketFormat: ParseEnum<ESocketFormat>(socketFormatStr),
+            compressionFormat: ParseEnum<EFileCompressionFormat>(compressionStr)
+        );
 
         // Check for output directory — only required when actually writing files
         var needsOutputDir = !list && format != "csv" && format != "json";
@@ -423,6 +433,11 @@ internal static class Program
         watch.Start();
 
         var cts = new CancellationTokenSource();
+
+        // Objects destined for convertible export (mesh/anim/texture/material) are collected here
+        // and handed to a single ExportSession afterwards, instead of the old per-object
+        // CUE4Parse_Conversion.Exporter/TryWriteToDir API, which no longer exists.
+        var sessionObjects = new ConcurrentBag<UObject>();
 
         //foreach (var package in packages)
 #if DEBUG
@@ -537,28 +552,20 @@ internal static class Program
                 var pointer = new FPackageIndex(pkg, i + 1).ResolvedObject;
                 if (pointer?.Object is null) continue;
 
-                //var dummy = ((AbstractUePackage) pkg).ConstructObject(pointer.Class?.Object?.Value as UStruct, pkg);
-                var dummy = ((AbstractUePackage) pkg).ConstructObject(pointer.Class, pkg); // new method
-
-                //Console.WriteLine($"{dummy?.GetType().Name} - {package.Name}");
+                var dummy = ((AbstractUePackage) pkg).ConstructObject(pointer.Class, pkg);
 
                 switch (dummy)
                 {
-                    case UTexture when type.HasFlag(ExportType.Texture) && pointer.Object.Value is UTexture texture:
+                    case UTexture when type.HasFlag(ExportType.Texture) && pointer.Object.Value is UTexture:
+                    case UAnimSequenceBase when type.HasFlag(ExportType.Animation):
+                    case USkeletalMesh when type.HasFlag(ExportType.Mesh):
+                    case UStaticMesh when type.HasFlag(ExportType.Mesh):
+                    case USkeleton when type.HasFlag(ExportType.Mesh):
                     {
-                        try
-                        {
-                            Log.Information("{ExportType} found in {PackageName}", dummy.ExportType, package.Name);
-                            // save internal umap heightmaps to subdirectories
-                            var textureFolder = ext != ".umap" ? folder : package.Path.Substring(0, package.Path.LastIndexOf('.'));
-                            SaveTexture(textureFolder, texture, options.Platform, options, ref exportCount);
-                        }
-                        catch (Exception e)
-                        {
-                            Log.Warning(e, "failed to decode {TextureName}", texture.Name);
-                        }
+                        // hand off to the ExportSession instead of exporting one-by-one
+                        Log.Information("{ExportType} found in {PackageName}", dummy.ExportType, package.Name);
+                        sessionObjects.Add(pointer.Object.Value);
                         parsed = true;
-
                         break;
                     }
                     case USoundWave when type.HasFlag(ExportType.Sound):
@@ -576,21 +583,6 @@ internal static class Program
 
                         break;
                     }
-                    case UAnimSequenceBase when type.HasFlag(ExportType.Animation):
-                    case USkeletalMesh when type.HasFlag(ExportType.Mesh):
-                    case UStaticMesh when type.HasFlag(ExportType.Mesh):
-                    case USkeleton when type.HasFlag(ExportType.Mesh):
-                    {
-                        Log.Information("{ExportType} found in {PackageName}", dummy.ExportType, package.Name);
-
-                        var exporter = new CUE4Parse_Conversion.Exporter(pointer.Object.Value, options);
-                        if (exporter.TryWriteToDir(new DirectoryInfo(_exportDirectory), out _, out var filePath))
-                        {
-                            WriteToLog(folder, Path.GetFileName(filePath), ref exportCount);
-                        }
-                        parsed = true;
-                        break;
-                    }
                 }
             }
 
@@ -603,6 +595,24 @@ internal static class Program
 
         }); // parallel foreach, must end with "});"
         //} // simple foreach
+
+        // Run everything collected for conversion through a single ExportSession
+        if (!sessionObjects.IsEmpty)
+        {
+            var session = new ExportSession
+            {
+                MaxDegreeOfParallelism = verbose ? 1 : Environment.ProcessorCount
+            };
+
+            foreach (var obj in sessionObjects)
+            {
+                session.Add(obj);
+            }
+
+            Console.Error.WriteLine($"Exporting {sessionObjects.Count} assets via ExportSession...");
+            var results = await session.RunAsync(_exportDirectory, options);
+            exportCount += sessionObjects.Count;
+        }
 
         watch.Stop();
 
@@ -629,7 +639,6 @@ internal static class Program
         path = path.Replace("\\\\", "\\");
         return path;
     }
-
 
     private static bool TryLoadLocmeta(CUE4Parse.FileProvider.Objects.GameFile package, out FTextLocalizationMetaDataResource? locres)
     {
@@ -666,7 +675,6 @@ internal static class Program
         return (locres != null);
     }
 
-
     private static void SaveRaw(string folder, CUE4Parse.FileProvider.Objects.GameFile package, AbstractVfsFileProvider provider, ref int exportCount)
     {
         var name = package.Name;
@@ -696,40 +704,6 @@ internal static class Program
         WriteToLog(folder, $"{name}", ref exportCount);
     }
 
-    private static void SaveTexture(string folder, UTexture texture, ETexturePlatform platform, ExporterOptions options, ref int exportCount)
-    {
-        var outPath = Path.Combine(_exportDirectory, folder, texture.Name);
-
-        foreach (var ext in new[] { ".png", ".hdr" })
-        {
-            var path = Path.ChangeExtension(outPath, ext);
-            if (!CheckFile(path, true))
-            {
-                CheckFile(path);
-                return;
-            }
-        }
-
-        var bitmaps = new[] { texture.Decode(platform) };
-        switch (texture)
-        {
-            case UTexture2DArray textureArray:
-                bitmaps = textureArray.DecodeTextureArray(platform);
-                break;
-            case UTextureCube:
-                bitmaps[0] = bitmaps[0]?.ToPanorama();
-                break;
-        }
-
-        foreach (var bitmap in bitmaps ?? Array.Empty<CTexture>())
-        {
-            if (bitmap is null) continue;
-            var bytes = bitmap.Encode(options.TextureFormat, options.ExportHdrTexturesAsHdr, out var extension);
-            var fileName = $"{texture.Name}.{extension}";
-            WriteToFile(folder, fileName, bytes, $"{fileName} ({bitmap.Width}x{bitmap.Height})", ref exportCount);
-        }
-    }
-
     private static void WriteToFile(string folder, string fileName, byte[] bytes, string logMessage, ref int exportCount)
     {
         var outPath = Path.Combine(_exportDirectory, folder, fileName);
@@ -756,8 +730,6 @@ internal static class Program
 
     private static void WriteToLog(string folder, string logMessage, ref int exportCount)
     {
-        //Console.Error.WriteLine($"Exported {logMessage} out of {folder}");
-        //Log.Information($"Exported {logMessage} out of {folder}");
         exportCount++;
     }
 }
