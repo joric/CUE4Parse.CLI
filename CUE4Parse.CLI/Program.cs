@@ -27,6 +27,7 @@ using CUE4Parse.Utils;
 using CUE4Parse_Conversion;
 using CUE4Parse_Conversion.Exporters;
 using CUE4Parse_Conversion.Options;
+using CUE4Parse_Conversion.Textures.BC;
 using CUE4Parse_Conversion.Writers.UEFormat.Enums;
 using CUE4Parse_Conversion.Animations;
 using CUE4Parse_Conversion.Meshes;
@@ -263,6 +264,11 @@ internal static class Program
             ZlibHelper.DownloadDll(zlibPath);
             ZlibHelper.Initialize(zlibPath);
 
+            // Init detex (required to decode compressed textures, e.g. BC formats)
+            var detexPath = Path.Combine(Path.GetTempPath(), DetexHelper.DLL_NAME);
+            DetexHelper.LoadDll(detexPath);
+            DetexHelper.Initialize(detexPath);
+
             // Register just the one pak file (skip Initialize which scans the whole directory)
             provider.RegisterVfs(pakFilePath);
         }
@@ -293,6 +299,11 @@ internal static class Program
             var zlibPath = Path.Combine(Path.GetTempPath(), ZlibHelper.DLL_NAME);
             ZlibHelper.DownloadDll(zlibPath);
             ZlibHelper.Initialize(zlibPath);
+
+            // Init detex (required to decode compressed textures, e.g. BC formats)
+            var detexPath = Path.Combine(Path.GetTempPath(), DetexHelper.DLL_NAME);
+            DetexHelper.LoadDll(detexPath);
+            DetexHelper.Initialize(detexPath);
 
             // Initialize provider (scans directory for paks)
             provider.Initialize();
